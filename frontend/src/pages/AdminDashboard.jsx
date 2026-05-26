@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { Building2, Users, Calendar, ShieldAlert, Trash2, CheckCircle, XCircle, ShieldCheck, LayoutGrid, Download, Trophy, User, Plus, History, Mail, Phone, CalendarDays, Clock } from 'lucide-react';
+import { Building2, Users, Calendar, ShieldAlert, Trash2, CheckCircle, XCircle, ShieldCheck, LayoutGrid, Download, Trophy, User, Plus, History, Mail, Phone, CalendarDays, Clock, Search } from 'lucide-react';
 import { API_URL } from '../apiConfig';
 
 const AdminDashboard = () => {
@@ -23,9 +23,16 @@ const AdminDashboard = () => {
   }, [location, navigate]);
   const [orgFilter, setOrgFilter] = useState(null);
   const [studentFilter, setStudentFilter] = useState(null);
+  const [studentClassFilter, setStudentClassFilter] = useState(null);
   const [eventFilter, setEventFilter] = useState(null);
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [showStudentDetailsModal, setShowStudentDetailsModal] = useState(false);
+  const [selectedStudentForDetails, setSelectedStudentForDetails] = useState(null);
+  const [showClassStudentsModal, setShowClassStudentsModal] = useState(false);
+  const [selectedClassForStudents, setSelectedClassForStudents] = useState(null);
+  const [selectedBranchForStudents, setSelectedBranchForStudents] = useState(null);
+  const [classStudentSearchQuery, setClassStudentSearchQuery] = useState('');
   const [selectedEventForLeaderboard, setSelectedEventForLeaderboard] = useState(null);
   const [selectedEventForParticipants, setSelectedEventForParticipants] = useState(null);
   const [participants, setParticipants] = useState([]);
@@ -70,7 +77,10 @@ const AdminDashboard = () => {
 
   const fetchAllEvents = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/events`);
+      const config = {
+        headers: { Authorization: `Bearer ${user.token}` }
+      };
+      const res = await axios.get(`${API_URL}/api/events`, config);
       setAllEvents(res.data);
     } catch (err) {
       console.error(err);
@@ -89,6 +99,27 @@ const AdminDashboard = () => {
       fetchAdminData();
     } catch (err) {
       alert('Failed to approve organizer');
+    }
+  };
+
+  const handleApproveEvent = async (id) => {
+    try {
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      await axios.put(`${API_URL}/api/admin/approve-event/${id}`, {}, config);
+      fetchAdminData();
+    } catch (err) {
+      alert('Failed to approve event');
+    }
+  };
+
+  const handleRejectEvent = async (id) => {
+    if (!window.confirm('Are you sure you want to reject this event?')) return;
+    try {
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      await axios.put(`${API_URL}/api/admin/reject-event/${id}`, {}, config);
+      fetchAdminData();
+    } catch (err) {
+      alert('Failed to reject event');
     }
   };
 
@@ -281,6 +312,11 @@ const AdminDashboard = () => {
                       {event.isGroupEvent ? 'Team/Group' : 'Individual'}
                     </span>
                   </div>
+                  {!event.isApproved && (
+                    <span className="absolute top-4 left-4 bg-yellow-500/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold text-white uppercase">
+                      Pending Approval
+                    </span>
+                  )}
                 </div>
                 <div className="p-6 flex-1 flex flex-col">
                   <div className="flex justify-between items-start mb-4">
@@ -408,7 +444,9 @@ const AdminDashboard = () => {
               {data.map((college) => {
                 const orgBranches = [...new Set(college.organizers.map(o => o.organizerDetails?.department).filter(Boolean))];
                 const studentBranches = [...new Set(college.students.map(s => s.studentDetails?.branch).filter(Boolean))];
-                const eventStatuses = ['LIVE', 'COMPLETED'];
+                const studentClasses = [...new Set(college.students.map(s => s.studentDetails?.class).filter(Boolean))];
+                const eventStatuses = ['PENDING', 'LIVE', 'COMPLETED'];
+                const pendingEvents = college.events.filter(e => !e.isApproved);
 
                 return (
                   <div key={college.college} className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
@@ -423,8 +461,13 @@ const AdminDashboard = () => {
                           <p className="text-blue-100 text-sm">{college.students.length} Students • {college.organizers.length} Organizers</p>
                         </div>
                       </div>
-                      <div className="absolute right-8 bg-white/10 px-4 py-2 rounded-xl text-sm font-medium backdrop-blur-sm border border-white/10 hidden md:block">
+                      <div className="absolute right-8 bg-white/10 px-4 py-2 rounded-xl text-sm font-medium backdrop-blur-sm border border-white/10 hidden md:flex items-center gap-2">
                         {college.events.length} Active Events
+                        {pendingEvents.length > 0 && (
+                          <span className="bg-red-500 px-2 py-0.5 rounded-full text-xs font-black">
+                          {pendingEvents.length} Pending
+                        </span>
+                        )}
                       </div>
                     </div>
 
@@ -446,7 +489,7 @@ const AdminDashboard = () => {
                                   key={branch}
                                   type=""
                                   onClick={() => setOrgFilter(orgFilter === branch ? null : branch)}
-                                  className="relative px-8 py-4 rounded-xl font-black uppercase text-sm transition-all bg-gray-50 text-gray-400 hover:bg-gray-100 hover:scale-105"
+                                  className={`relative px-8 py-4 rounded-xl font-black uppercase text-sm transition-all bg-gray-50 text-gray-400 hover:bg-gray-100 hover:scale-105`}
                                 >
                                   {branch}
                                   {hasPending && (
@@ -503,42 +546,47 @@ const AdminDashboard = () => {
                             <Users className="w-5 h-5 text-blue-500" />
                             Students
                           </h3>
-                          <div className="flex flex-wrap gap-2">
-                            {studentBranches.map(branch => (
-                              <button
-                                key={branch}
-                                type=""
-                                onClick={() => setStudentFilter(studentFilter === branch ? null : branch)}
-                                className="px-8 py-4 rounded-xl font-black uppercase text-sm transition-all bg-gray-50 text-gray-400 hover:bg-gray-100 hover:scale-105"
-                              >
-                                {branch}
-                              </button>
-                            ))}
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-2">
+                              {studentBranches.map(branch => (
+                                <button
+                                  key={branch}
+                                  type=""
+                                  onClick={() => {
+                                    setStudentFilter(studentFilter === branch ? null : branch);
+                                    setStudentClassFilter(null);
+                                  }}
+                                  className={`px-8 py-4 rounded-xl font-black uppercase text-sm transition-all bg-gray-50 text-gray-400 hover:bg-gray-100 hover:scale-105`}
+                                >
+                                  {branch}
+                                </button>
+                              ))}
+                            </div>
+                            {studentFilter && (
+                              <div className="flex flex-wrap gap-2">
+                                {studentClasses.filter(cls => 
+                                  college.students.some(s => 
+                                    s.studentDetails?.branch === studentFilter && s.studentDetails?.class === cls)
+                                ).map(cls => (
+                                  <button
+                                    key={cls}
+                                    type=""
+                                    onClick={() => {
+                                      setSelectedBranchForStudents(studentFilter);
+                                      setSelectedClassForStudents(cls);
+                                      setClassStudentSearchQuery('');
+                                      setShowClassStudentsModal(true);
+                                    }}
+                                    className={`px-6 py-3 rounded-xl font-black uppercase text-xs transition-all bg-blue-50 text-blue-400 hover:bg-blue-100 hover:scale-105`}
+                                  >
+                                    {cls}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                          {studentFilter && college.students
-                            .filter(s => s.studentDetails?.branch === studentFilter)
-                            .map(student => (
-                            <div key={student._id} className="bg-gray-50 p-4 rounded-2xl flex items-center justify-between border border-transparent hover:border-blue-200 transition">
-                                <div>
-                                  <p className="font-bold text-gray-800 text-sm">{student.name}</p>
-                                  <p className="text-gray-400 text-xs">{student.email}</p>
-                                  <p className="text-blue-600 text-[10px] font-bold mt-1 uppercase tracking-wider">
-                                    {student.studentDetails?.branch || 'General Student'}
-                                  </p>
-                                </div>
-                                <button 
-                                  onClick={() => handleDeleteUser(student._id)}
-                                  className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition"
-                                  title="Delete Student"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))
-                          }
-                        </div>
+
                       </div>
 
                       {/* Events List */}
@@ -554,24 +602,48 @@ const AdminDashboard = () => {
                                 key={status}
                                 type=""
                                 onClick={() => setEventFilter(eventFilter === status ? null : status)}
-                                className="px-8 py-4 rounded-xl font-black uppercase text-sm transition-all bg-gray-50 text-gray-400 hover:bg-gray-100 hover:scale-105"
+                                className={`relative px-8 py-4 rounded-xl font-black uppercase text-sm transition-all bg-gray-50 text-gray-400 hover:bg-gray-100 hover:scale-105`}
                               >
                                 {status}
+                                {status === 'PENDING' && pendingEvents.length > 0 && (
+                                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600 border border-white"></span>
+                                  </span>
+                                )}
                               </button>
                             ))}
                           </div>
                         </div>
                         <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                          {eventFilter && college.events
-                            .filter(e => {
-                              const expired = isExpired(e);
-                              return eventFilter === 'COMPLETED' ? expired : !expired;
-                            })
-                            .map(event => (
+                          {eventFilter && (
+                            (eventFilter === 'PENDING' 
+                              ? pendingEvents
+                              : college.events.filter(e => {
+                                  const expired = isExpired(e);
+                                  return eventFilter === 'COMPLETED' ? expired : !expired && e.isApproved;
+                                })
+                            ).map(event => (
                             <div key={event._id} className="bg-gray-50 p-4 rounded-2xl flex items-center justify-between border border-transparent hover:border-red-200 transition">
-                                <div>
+                                <div className="flex-1">
                                   <p className="font-bold text-gray-800 text-sm">{event.name}</p>
+                                  {!event.isApproved && (
+                                    <div className="mt-2 space-y-1">
+                                      <p className="text-[10px] font-bold text-yellow-600 uppercase tracking-wider">
+                                        Organizer: {event.organizer?.name}
+                                      </p>
+                                      <p className="text-[10px] text-gray-500">
+                                        Dept: {event.organizer?.organizerDetails?.department} • 
+                                        Mo: {event.organizer?.organizerDetails?.mobileNo}
+                                      </p>
+                                    </div>
+                                  )}
                                   <div className="flex flex-wrap gap-1 mt-1">
+                                    {!event.isApproved && (
+                                      <p className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-yellow-100 text-yellow-600">
+                                        Pending Approval
+                                      </p>
+                                    )}
                                     <p className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${isExpired(event) ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-500'}`}>
                                       {isExpired(event) ? 'Completed' : 'Live'}
                                     </p>
@@ -586,6 +658,24 @@ const AdminDashboard = () => {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                  {!event.isApproved && event.status !== 'rejected' && (
+                                    <>
+                                      <button 
+                                        onClick={() => handleApproveEvent(event._id)}
+                                        className="p-1.5 text-green-600 hover:bg-green-100 rounded-lg transition"
+                                        title="Approve Event"
+                                      >
+                                        <CheckCircle className="w-5 h-5" />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleRejectEvent(event._id)}
+                                        className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition"
+                                        title="Reject Event"
+                                      >
+                                        <XCircle className="w-5 h-5" />
+                                      </button>
+                                    </>
+                                  )}
                                   {event.winners && event.winners.length > 0 && (
                                     <button
                                       onClick={() => {
@@ -615,7 +705,7 @@ const AdminDashboard = () => {
                                 </div>
                               </div>
                             ))
-                          }
+                          )}
                         </div>
                       </div>
                     </div>
@@ -628,6 +718,74 @@ const AdminDashboard = () => {
               <p className="text-gray-500">No data available yet.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Student Details Modal */}
+      {showStudentDetailsModal && selectedStudentForDetails && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-300">
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h2 className="text-3xl font-black text-gray-900 tracking-tighter">Student Details</h2>
+                <p className="text-sm text-gray-500 font-medium">{selectedStudentForDetails.name}</p>
+              </div>
+              <button 
+                onClick={() => setShowStudentDetailsModal(false)} 
+                className="text-gray-400 hover:text-gray-600 transition p-2 hover:bg-gray-100 rounded-full"
+              >
+                <Plus className="w-6 h-6 rotate-45" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-2xl">
+                <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-2xl">
+                  {selectedStudentForDetails.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-black text-xl text-gray-900">{selectedStudentForDetails.name}</h3>
+                  <p className="text-sm text-gray-500">{selectedStudentForDetails.email}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-2xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Roll No</p>
+                  <p className="font-bold text-gray-800">{selectedStudentForDetails.studentDetails?.rollNo || 'N/A'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-2xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Class</p>
+                  <p className="font-bold text-gray-800">{selectedStudentForDetails.studentDetails?.class || 'N/A'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-2xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Branch</p>
+                  <p className="font-bold text-gray-800">{selectedStudentForDetails.studentDetails?.branch || 'N/A'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-2xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Year</p>
+                  <p className="font-bold text-gray-800">{selectedStudentForDetails.studentDetails?.year || 'N/A'}</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-2xl">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Mobile Number</p>
+                <p className="font-bold text-gray-800">{selectedStudentForDetails.studentDetails?.mobileNo || 'N/A'}</p>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-2xl">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">College</p>
+                <p className="font-bold text-gray-800">{selectedStudentForDetails.collegeName}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowStudentDetailsModal(false)}
+              className="w-full mt-8 py-4 bg-gray-900 text-white rounded-2xl font-black text-lg hover:bg-black transition-all shadow-lg shadow-gray-200"
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
 
@@ -761,22 +919,15 @@ const AdminDashboard = () => {
                         <div className="border-t border-purple-100 pt-4">
                           <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-3">Team Members:</p>
                           <div className="grid grid-cols-2 gap-3">
-                            {reg.teamMembers?.map((member, idx) => (
-                              <div key={idx} className={`flex items-center gap-3 p-3 rounded-xl ${member.isUnregistered ? 'bg-red-50 border border-red-100' : 'bg-white border border-purple-100'}`}>
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${member.isUnregistered ? 'bg-red-100 text-red-600' : 'bg-purple-100 text-purple-600'}`}>
-                                  {idx + 1}
-                                </div>
-                                <div>
-                                  <p className={`font-bold ${member.isUnregistered ? 'text-red-600 line-through' : 'text-gray-800'}`}>
-                                    {member.name}
-                                  </p>
-                                  <p className="text-xs text-gray-500">
-                                    ({member.rollNo || 'No Roll'}) {member.branch || member.class || 'N/A'}
-                                  </p>
-                                  {member.isUnregistered && (
-                                    <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Unregistered</p>
-                                  )}
-                                </div>
+                            {(reg.teamMembers || []).map((member, idx) => (
+                              <div key={idx} className={`p-3 bg-white rounded-xl border border-purple-100`}>
+                                <p className="font-bold text-purple-800">{member.name}</p>
+                                <p className="text-xs text-purple-500">
+                                  Roll: {member.rollNo || 'N/A'} • Class: {member.class || 'N/A'}
+                                </p>
+                                {member.isUnregistered && (
+                                  <p className="text-xs text-red-500 font-bold mt-1">Unregistered</p>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -785,45 +936,129 @@ const AdminDashboard = () => {
                     ))}
                   </div>
                 ) : (
-                  // Individual Event Display (Original Table)
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider font-bold">
-                        <tr>
-                          <th className="px-4 py-3">Student Name</th>
-                          <th className="px-4 py-3">Roll No</th>
-                          <th className="px-4 py-3">Branch</th>
-                          <th className="px-4 py-3">Class</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {participants.map((reg) => (
-                          <tr key={reg._id} className="hover:bg-gray-50 transition">
-                            <td className="px-4 py-3 font-bold text-gray-900">{reg.student?.name}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 font-medium">{reg.student?.studentDetails?.rollNo || 'N/A'}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 font-medium">{reg.student?.studentDetails?.branch || 'N/A'}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 font-medium">{reg.student?.studentDetails?.class || 'N/A'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  // Individual Event Display
+                  <div className="space-y-3">
+                    {participants.map((reg, idx) => (
+                    <div key={idx} className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-gray-800">{reg.student?.name || 'Unknown'}</p>
+                        <p className="text-xs text-gray-500">
+                          {reg.student?.studentDetails?.branch || 'N/A'} • {reg.student?.studentDetails?.class || 'N/A'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-600">Roll: {reg.student?.studentDetails?.rollNo || 'N/A'}</p>
+                        <p className="text-xs text-gray-500">
+                          {reg.registeredAt ? new Date(reg.registeredAt).toLocaleDateString() : 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                   </div>
                 )
               ) : (
-                <div className="text-center py-12">
-                  <p className="text-gray-500 font-medium">No participants registered for this event yet.</p>
+                <div className="text-center py-10">
+                  <p className="text-gray-500">No participants registered yet.</p>
                 </div>
               )}
             </div>
-            
-            <div className="mt-8 flex justify-end">
-              <button
-                onClick={() => setShowParticipantsModal(false)}
-                className="px-8 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black rounded-xl transition"
+          </div>
+        </div>
+      )}
+
+      {/* Class Students Modal */}
+      {showClassStudentsModal && selectedBranchForStudents && selectedClassForStudents && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-3xl shadow-2xl animate-in fade-in zoom-in duration-300 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h2 className="text-3xl font-black text-gray-900 tracking-tighter">
+                  Class: {selectedClassForStudents}
+                </h2>
+                <p className="text-sm text-gray-500 font-medium">
+                  Branch: {selectedBranchForStudents}
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowClassStudentsModal(false)} 
+                className="text-gray-400 hover:text-gray-600 transition p-2 hover:bg-gray-100 rounded-full"
               >
-                Close
+                <Plus className="w-6 h-6 rotate-45" />
               </button>
             </div>
+
+            {/* Search Box */}
+            <div className="mb-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search students by name, roll no, or mobile..."
+                  value={classStudentSearchQuery}
+                  onChange={(e) => setClassStudentSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Students List */}
+            <div className="space-y-3">
+              {data
+                .flatMap(college => college.students)
+                .filter(student => 
+                  student.studentDetails?.branch === selectedBranchForStudents &&
+                  student.studentDetails?.class === selectedClassForStudents
+                )
+                .filter(student => {
+                  if (!classStudentSearchQuery.trim()) return true;
+                  const query = classStudentSearchQuery.toLowerCase();
+                  return (
+                    student.name.toLowerCase().includes(query) ||
+                    student.studentDetails?.rollNo?.toLowerCase().includes(query) ||
+                    student.studentDetails?.mobileNo?.includes(query)
+                  );
+                })
+                .map(student => (
+                  <div 
+                    key={student._id} 
+                    className="bg-gray-50 p-5 rounded-2xl flex items-center justify-between border border-transparent hover:border-blue-200 transition cursor-pointer"
+                    onClick={() => {
+                      setSelectedStudentForDetails(student);
+                      setShowStudentDetailsModal(true);
+                    }}
+                  >
+                    <div className="flex-1">
+                      <p className="font-bold text-gray-800 text-base">{student.name}</p>
+                      <p className="text-gray-500 text-sm">{student.email}</p>
+                      <div className="flex flex-wrap gap-3 mt-2">
+                        <p className="text-blue-600 text-xs font-bold uppercase tracking-wider">
+                          Roll: {student.studentDetails?.rollNo || 'N/A'}
+                        </p>
+                        <p className="text-purple-600 text-xs font-bold uppercase tracking-wider">
+                          Mobile: {student.studentDetails?.mobileNo || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteUser(student._id);
+                      }}
+                      className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition"
+                      title="Delete Student"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+            </div>
+
+            <button
+              onClick={() => setShowClassStudentsModal(false)}
+              className="w-full mt-8 py-4 bg-gray-900 text-white rounded-2xl font-black text-lg hover:bg-black transition-all shadow-lg shadow-gray-200"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

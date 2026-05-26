@@ -1,25 +1,8 @@
-# Build stage
-FROM node:20-alpine as build-stage
+# Production stage - use pre-built dist folder from local machine
+FROM nginx:stable-alpine
 
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies (including devDependencies for build)
-RUN npm install --include=dev
-
-# Copy all source files
-COPY . .
-
-# Build the production application
-RUN npm run build
-
-# Production stage
-FROM nginx:stable-alpine as production-stage
-
-# Copy the build output from the previous stage
-COPY --from=build-stage /app/dist /usr/share/nginx/html
+# Copy the pre-built dist folder (built locally with npm run build)
+COPY dist /usr/share/nginx/html
 
 # Copy custom nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf

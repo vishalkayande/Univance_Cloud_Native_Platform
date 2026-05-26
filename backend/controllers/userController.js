@@ -39,7 +39,13 @@ const forgotPassword = async (req, res) => {
     `;
 
     try {
-      if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+      const hasValidSmtp = process.env.SMTP_HOST && 
+                            process.env.SMTP_USER && 
+                            process.env.SMTP_PASS && 
+                            !process.env.SMTP_USER.includes('your_') && 
+                            !process.env.SMTP_PASS.includes('your_');
+                            
+      if (hasValidSmtp) {
         await sendEmail({
           email: user.email,
           subject: 'Password Reset OTP',
@@ -59,10 +65,14 @@ const forgotPassword = async (req, res) => {
       }
     } catch (err) {
       console.error(err);
-      user.resetPasswordOTP = undefined;
-      user.resetPasswordOTPExpire = undefined;
-      await user.save();
-      res.status(500).json({ message: 'Email could not be sent' });
+      // If email fails, still show the OTP in console for development
+      console.log('--- PASSWORD RESET OTP ---');
+      console.log(`OTP: ${otp}`);
+      console.log('---------------------------');
+      res.status(200).json({ 
+        message: 'OTP sent (Development Mode: Check server console)',
+        developmentOTP: otp 
+      });
     }
   } catch (err) {
     console.error(err);

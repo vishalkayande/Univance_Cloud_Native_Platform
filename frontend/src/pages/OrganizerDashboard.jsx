@@ -425,11 +425,33 @@ const OrganizerDashboard = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {events.map((event) => (
-                    <tr key={event._id} className="hover:bg-gray-50 transition group">
+                    <tr 
+                      key={event._id} 
+                      className={`hover:bg-gray-50 transition group ${
+                        event.status === 'pending' || event.status === 'rejected' ? 'opacity-70' : ''
+                      }`}
+                    >
                       <td className="px-6 py-4">
                         <div className="text-left">
-                          <div className="font-bold text-gray-900">
-                            {event.name}
+                          <div className="flex items-center gap-2">
+                            <div className="font-bold text-gray-900">
+                              {event.name}
+                            </div>
+                            {event.status === 'pending' && (
+                              <span className="text-[10px] font-black uppercase tracking-tighter px-2 py-0.5 rounded bg-yellow-100 text-yellow-600">
+                                Waiting for Approval
+                              </span>
+                            )}
+                            {event.status === 'rejected' && (
+                              <span className="text-[10px] font-black uppercase tracking-tighter px-2 py-0.5 rounded bg-red-100 text-red-600">
+                                Rejected
+                              </span>
+                            )}
+                            {event.status === 'approved' && (
+                              <span className="text-[10px] font-black uppercase tracking-tighter px-2 py-0.5 rounded bg-green-100 text-green-600">
+                                Approved
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-gray-400 truncate max-w-[200px]">{event.description}</div>
                         </div>

@@ -61,6 +61,15 @@ const getEvents = async (req, res) => {
   if (level) query.level = level;
   if (college) query.college = college;
 
+  // Only show approved events to students; admins see all; organizers see their own all events
+  if (!req.user) {
+    query.status = 'approved';
+  } else if (req.user.role === 'organizer') {
+    query.organizer = req.user._id;
+  } else if (req.user.role !== 'admin') {
+    query.status = 'approved';
+  }
+
   const events = await Event.find(query)
     .populate('organizer', 'name email organizerDetails')
     .populate('registrations.student', 'name studentDetails email')

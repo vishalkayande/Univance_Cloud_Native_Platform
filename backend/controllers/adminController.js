@@ -7,7 +7,7 @@ const Event = require('../models/eventModel');
 const getDashboardData = async (req, res) => {
   const students = await User.find({ role: 'student' }).select('-password');
   const organizers = await User.find({ role: 'organizer' }).select('-password');
-  const events = await Event.find({}).populate('organizer', 'name collegeName');
+  const events = await Event.find({}).populate('organizer', 'name collegeName organizerDetails email');
   
   // Group by college for hierarchical view
   const colleges = [...new Set(students.map(s => s.collegeName).concat(organizers.map(o => o.collegeName)))];
@@ -34,6 +34,38 @@ const approveOrganizer = async (req, res) => {
     res.json({ message: 'Organizer approved' });
   } else {
     res.status(404).json({ message: 'Organizer not found' });
+  }
+};
+
+// @desc    Approve event
+// @route   PUT /api/admin/approve-event/:id
+// @access  Private (Admin)
+const approveEvent = async (req, res) => {
+  const event = await Event.findById(req.params.id);
+
+  if (event) {
+    event.isApproved = true;
+    event.status = 'approved';
+    await event.save();
+    res.json({ message: 'Event approved' });
+  } else {
+    res.status(404).json({ message: 'Event not found' });
+  }
+};
+
+// @desc    Reject event
+// @route   PUT /api/admin/reject-event/:id
+// @access  Private (Admin)
+const rejectEvent = async (req, res) => {
+  const event = await Event.findById(req.params.id);
+
+  if (event) {
+    event.isApproved = false;
+    event.status = 'rejected';
+    await event.save();
+    res.json({ message: 'Event rejected' });
+  } else {
+    res.status(404).json({ message: 'Event not found' });
   }
 };
 
@@ -68,6 +100,8 @@ const deleteEvent = async (req, res) => {
 module.exports = {
   getDashboardData,
   approveOrganizer,
+  approveEvent,
+  rejectEvent,
   deleteUser,
   deleteEvent,
 };

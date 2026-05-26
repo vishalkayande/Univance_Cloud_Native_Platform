@@ -10,14 +10,14 @@ const seedAdmin = async () => {
       await User.create({
         name: 'System Admin',
         email: adminEmail,
-        password: 'admin123', // Will be hashed by userModel pre-save hook
+        password: 'Admin@123', // Meets password requirements
         role: 'admin',
         collegeName: 'System'
       });
       console.log('-----------------------------------');
       console.log('DEFAULT ADMIN CREATED:');
       console.log(`Email: ${adminEmail}`);
-      console.log('Password: admin123');
+      console.log('Password: Admin@123');
       console.log('-----------------------------------');
     } else {
       console.log('Admin account verified in database.');

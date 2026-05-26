@@ -24,6 +24,8 @@ const StudentDashboard = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [memberSearchQueries, setMemberSearchQueries] = useState([]);
+  const [activeDropdownIndex, setActiveDropdownIndex] = useState(null);
 
   useEffect(() => {
     // Only show modal if studentDetails are completely missing or branch is not set
@@ -33,6 +35,15 @@ const StudentDashboard = () => {
       setShowProfileModal(false);
     }
   }, [user]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setActiveDropdownIndex(null);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const fetchEvents = async () => {
     try {
@@ -81,6 +92,9 @@ const StudentDashboard = () => {
           teamName: '',
           teamMembers: initialMembers
         });
+
+        // Initialize search queries for each member
+        setMemberSearchQueries(Array(event.maxTeamSize).fill(''));
         
         setSelectedEventForTeam(event);
         setShowTeamModal(true);
@@ -186,6 +200,14 @@ const StudentDashboard = () => {
   const handleSetRole = (slotIndex, role) => {
     const newMembers = [...teamFormData.teamMembers];
     if (newMembers[slotIndex]) {
+      if (role === 'leader') {
+        // If setting to leader, unset all other leaders
+        newMembers.forEach((m, idx) => {
+          if (m && idx !== slotIndex) {
+            m.role = 'member';
+          }
+        });
+      }
       newMembers[slotIndex].role = role;
     }
     setTeamFormData({ ...teamFormData, teamMembers: newMembers });
@@ -196,6 +218,16 @@ const StudentDashboard = () => {
     return teamFormData.teamMembers
       .filter(m => m !== null)
       .map(m => m.student);
+  };
+
+  // Filter classmates based on search query
+  const getFilteredClassmates = (searchQuery) => {
+    if (!searchQuery.trim()) return classmates;
+    const query = searchQuery.toLowerCase();
+    return classmates.filter(classmate => 
+      classmate.name.toLowerCase().includes(query) ||
+      classmate.studentDetails?.rollNo?.toLowerCase().includes(query)
+    );
   };
 
   const handleUnenroll = async (eventId) => {
@@ -717,52 +749,88 @@ const StudentDashboard = () => {
                         )}
                       </div>
                       
-                      <div className="flex gap-3">
-                        <select
-                          className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition font-medium"
-                          value={member ? member.student : ''}
-                          onChange={(e) => {
-                            if (e.target.value === '') {
-                              handleSelectMember(index, null);
-                            } else {
-                              const studentId = e.target.value;
-                              if (studentId === user._id) {
-                                // Current user
-                                handleSelectMember(index, {
-                                  _id: user._id,
-                                  name: user.name,
-                                  studentDetails: user.studentDetails,
-                                  email: user.email
-                                });
-                              } else {
-                                // Classmate
-                                const classmate = classmates.find(c => c._id === studentId);
-                                if (classmate) {
-                                  handleSelectMember(index, classmate);
-                                }
-                              }
-                            }
-                          }}
-                        >
-                          <option value="">Select student</option>
-                          {/* Current user option */}
-                          <option 
-                            value={user._id} 
-                            disabled={getSelectedStudentIds().includes(user._id) && (!member || member.student !== user._id)}
-                          >
-                            ({user.studentDetails?.rollNo || 'Your Roll'}) {user.name} (You)
-                          </option>
-                          {/* Classmates */}
-                          {classmates.map(classmate => (
-                            <option 
-                              key={classmate._id} 
-                              value={classmate._id}
-                              disabled={getSelectedStudentIds().includes(classmate._id) && (!member || member.student !== classmate._id)}
+                      <div className="relative" onClick={(e) => e.stopPropagation()}>
+                        {member ? (
+                          <div className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl">
+                            <div>
+                              <p className="font-medium text-gray-800">{member.name}</p>
+                              <p className="text-xs text-gray-500">
+                                ({member.rollNo || 'No Roll'} • {member.class || 'No Class'})
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectMember(index, null)}
+                              className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition"
                             >
-                              ({classmate.studentDetails?.rollNo || 'No Roll'}) {classmate.name}
-                            </option>
-                          ))}
-                        </select>
+                              <Plus className="w-4 h-4 rotate-45" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                              <input
+                                type="text"
+                                placeholder="Search by name or roll no..."
+                                value={memberSearchQueries[index] || ''}
+                                onChange={(e) => {
+                                  const newQueries = [...memberSearchQueries];
+                                  newQueries[index] = e.target.value;
+                                  setMemberSearchQueries(newQueries);
+                                  setActiveDropdownIndex(index);
+                                }}
+                                onFocus={() => setActiveDropdownIndex(index)}
+                                className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition font-medium"
+                              />
+                            </div>
+                            
+                            {activeDropdownIndex === index && (
+                              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                                {/* Current user option */}
+                                {!getSelectedStudentIds().includes(user._id) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleSelectMember(index, {
+                                        _id: user._id,
+                                        name: user.name,
+                                        studentDetails: user.studentDetails,
+                                        email: user.email
+                                      });
+                                      setActiveDropdownIndex(null);
+                                    }}
+                                    className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 transition"
+                                  >
+                                    <p className="font-medium text-gray-800">{user.name} (You)</p>
+                                    <p className="text-xs text-gray-500">
+                                      ({user.studentDetails?.rollNo || 'Your Roll'}) • {user.studentDetails?.class || 'No Class'}
+                                    </p>
+                                  </button>
+                                )}
+                                {/* Classmates */}
+                                {getFilteredClassmates(memberSearchQueries[index])
+                                  .filter(classmate => !getSelectedStudentIds().includes(classmate._id))
+                                  .map(classmate => (
+                                    <button
+                                      key={classmate._id}
+                                      type="button"
+                                      onClick={() => {
+                                        handleSelectMember(index, classmate);
+                                        setActiveDropdownIndex(null);
+                                      }}
+                                      className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition"
+                                    >
+                                      <p className="font-medium text-gray-800">{classmate.name}</p>
+                                      <p className="text-xs text-gray-500">
+                                        ({classmate.studentDetails?.rollNo || 'No Roll'}) • {classmate.studentDetails?.class || 'No Class'}
+                                      </p>
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
