@@ -64,6 +64,12 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 
 const PORT = process.env.PORT || 5002;
 
-server.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-});
+// Only listen if running locally (not on Vercel/serverless)
+if (process.env.NODE_ENV !== 'production' || require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  });
+}
+
+// Export for serverless functions
+module.exports = { app, server };

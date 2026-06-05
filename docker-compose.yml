@@ -2,22 +2,16 @@ services:
   # Database Service
   mongodb:
     image: mongo:latest
-    container_name: collegesphere_db
     restart: always
-    ports:
-      - "27018:27017"
     volumes:
       - mongo-data:/data/db
 
   # Backend Service
   backend:
     build: ./backend
-    container_name: collegesphere_api
     restart: always
     ports:
       - "5002:5002"
-    env_file:
-      - .env
     depends_on:
       - mongodb
 
@@ -25,7 +19,6 @@ services:
   frontend:
     build:
       context: ./frontend
-    container_name: collegesphere_web
     restart: always
     ports:
       - "80:80"
