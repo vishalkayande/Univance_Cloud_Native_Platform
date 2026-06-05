@@ -1,0 +1,10 @@
+{
+  "build": {
+    "builder": "DOCKER_COMPOSE"
+  },
+  "deploy": {
+    "dockerCompose": {
+      "path": "./docker-compose.yml"
+    }
+  }
+}
