@@ -159,6 +159,13 @@ Quick Steps:
 8. Access your application at your EC2 public IP address!
 
 ---
+## Screenshots:
+<img width="1919" height="1138" alt="Screenshot 2026-06-05 134814" src="https://github.com/user-attachments/assets/33306e65-c301-4dbf-b0bd-f7c30a31fb25" />
+<img width="1919" height="1088" alt="Screenshot 2026-06-05 135140" src="https://github.com/user-attachments/assets/e62ff2f4-a36e-4f2a-803b-635940e9400e" />
+<img width="1919" height="1094" alt="Screenshot 2026-06-05 135219" src="https://github.com/user-attachments/assets/581b01d0-0ffe-41d7-9063-3e471ce44c6c" />
+<img width="1917" height="1040" alt="Screenshot 2026-06-05 135259" src="https://github.com/user-attachments/assets/d959085f-344d-47e4-b6c2-acd540e378ab" />
+<img width="1919" height="1049" alt="Screenshot 2026-06-05 135319" src="https://github.com/user-attachments/assets/f59a085d-8301-438f-9b80-0f16205b475d" />
+
 
 ## 📜 License
 This project is licensed under the ISC License.
