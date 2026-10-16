@@ -22,6 +22,14 @@ const protect = async (req, res, next) => {
         return res.status(401).json({ message: 'User not found' });
       }
 
+      if (req.user.isBlocked) {
+        return res.status(403).json({
+          message: 'You have been banned by the college admin. Please contact your college administration or department head.',
+          isBlocked: true,
+          blockReason: req.user.blockReason || 'Banned by college administration',
+        });
+      }
+
       return next();
     } catch (error) {
       console.error('JWT Verification Error:', error.message);

@@ -1,5 +1,6 @@
 const express = require('express');
 const dotenv = require('dotenv');
+const path = require('path');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -7,7 +8,12 @@ const connectDB = require('./config/db');
 const seedAdmin = require('./config/seed');
 
 // Load env vars
-dotenv.config();
+dotenv.config({
+  path: [
+    path.resolve(__dirname, '.env'),
+    path.resolve(__dirname, '..', '.env'),
+  ],
+});
 
 // Connect to database
 connectDB().then(() => {
@@ -26,7 +32,7 @@ const io = new Server(server, {
 
 // Middleware
 app.use(cors({
-  origin: '*', // Allow all origins for IP-based access
+  origin: true, // Allow any origin dynamically when using credentials
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -49,7 +55,7 @@ io.on('connection', (socket) => {
 
 // Basic route
 app.get('/', (req, res) => {
-  res.send('CollegeSphere API is running...');
+  res.send('UniVance API is running...');
 });
 
 // Ping route

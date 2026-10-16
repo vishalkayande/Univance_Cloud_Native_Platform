@@ -48,6 +48,14 @@ const userSchema = mongoose.Schema(
     },
     resetPasswordOTP: String,
     resetPasswordOTPExpire: Date,
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    blockReason: {
+      type: String,
+      default: '',
+    },
   },
   {
     timestamps: true,

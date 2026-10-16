@@ -1,9 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { LayoutGrid, Building2, Users, Search, MapPin, Calendar, Clock, ChevronRight, Info, CreditCard, Trophy, User, Plus } from 'lucide-react';
+import { 
+  LayoutGrid, 
+  Building2, 
+  Users, 
+  Search, 
+  MapPin, 
+  Calendar, 
+  Clock, 
+  ChevronRight, 
+  Info, 
+  CreditCard, 
+  Trophy, 
+  User, 
+  Plus, 
+  CheckCircle2, 
+  AlertCircle, 
+  Sparkles, 
+  Crown, 
+  Trash2, 
+  X,
+  Share2,
+  Bookmark,
+  Check,
+  ShieldCheck,
+  ShieldAlert,
+  Phone,
+  Mail,
+  Zap,
+  Filter,
+  Award,
+  ExternalLink,
+  Download,
+  Globe,
+  Layers,
+} from 'lucide-react';
 import { API_URL } from '../apiConfig';
+import CertificateModal from '../components/CertificateModal';
+import CertificateNotificationPopup from '../components/CertificateNotificationPopup';
 
 const StudentDashboard = () => {
   const { user, updateUser, logout } = useAuth();
@@ -12,6 +48,17 @@ const StudentDashboard = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  
+  // Certificates state
+  const [myCertificates, setMyCertificates] = useState([]);
+  const [loadingCertificates, setLoadingCertificates] = useState(false);
+  const [selectedCertificateForView, setSelectedCertificateForView] = useState(null);
+  const [notificationCertificate, setNotificationCertificate] = useState(null);
+  const [certificateSearchQuery, setCertificateSearchQuery] = useState('');
+  const [certificateTypeFilter, setCertificateTypeFilter] = useState('ALL'); // 'ALL' | 'winner' | 'participant'
+
+  // Modals state
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   const [selectedEventForLeaderboard, setSelectedEventForLeaderboard] = useState(null);
@@ -27,8 +74,30 @@ const StudentDashboard = () => {
   const [memberSearchQueries, setMemberSearchQueries] = useState([]);
   const [activeDropdownIndex, setActiveDropdownIndex] = useState(null);
 
+  // Requirement 1: Expandable full event description tracking
+  const [expandedDescriptionMap, setExpandedDescriptionMap] = useState({});
+
+  // Requirement 3: Profile customization state for 'OTHER'
+  const [profileBranchSelect, setProfileBranchSelect] = useState(user?.studentDetails?.branch || '');
+  const [profileCustomBranch, setProfileCustomBranch] = useState('');
+  const [profileClassSelect, setProfileClassSelect] = useState(user?.studentDetails?.class || '');
+  const [profileCustomClass, setProfileCustomClass] = useState('');
+
+  // Requirement 6: Team Invitations and Slot Replacement state
+  const [pendingInvitations, setPendingInvitations] = useState([]);
+  const [loadingInvitations, setLoadingInvitations] = useState(false);
+  const [respondingInvitationId, setRespondingInvitationId] = useState(null);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [replaceTargetEvent, setReplaceTargetEvent] = useState(null);
+  const [replaceTargetReg, setReplaceTargetReg] = useState(null);
+  const [replaceClassmates, setReplaceClassmates] = useState([]);
+  const [replaceSearchQuery, setReplaceSearchQuery] = useState('');
+  const [selectedReplacementStudent, setSelectedReplacementStudent] = useState(null);
+  const [replacingMember, setReplacingMember] = useState(false);
+  const [isUserBlocked, setIsUserBlocked] = useState(user?.isBlocked || false);
+
+  // Check if student profile is incomplete
   useEffect(() => {
-    // Only show modal if studentDetails are completely missing or branch is not set
     if (user && user.role === 'student' && (!user.studentDetails || !user.studentDetails.branch)) {
       setShowProfileModal(true);
     } else {
@@ -36,7 +105,7 @@ const StudentDashboard = () => {
     }
   }, [user]);
 
-  // Close dropdown when clicking outside
+  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = () => {
       setActiveDropdownIndex(null);
@@ -45,38 +114,188 @@ const StudentDashboard = () => {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  const fetchMyCertificates = async () => {
+    try {
+      setLoadingCertificates(true);
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const res = await axios.get(`${API_URL}/api/events/my-certificates`, config);
+      setMyCertificates(res.data || []);
+
+      if (res.data && res.data.length > 0) {
+        const dismissedKey = `dismissed_certs_${user._id}`;
+        const dismissedIds = JSON.parse(sessionStorage.getItem(dismissedKey) || '[]');
+        const unnotified = res.data.find(c => !dismissedIds.includes(c.certificateId));
+        if (unnotified) {
+          setNotificationCertificate(unnotified);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching student certificates:', err);
+      if (err.response?.status === 403 && (err.response?.data?.isBlocked || err.response?.data?.message?.includes('banned'))) {
+        setIsUserBlocked(true);
+      }
+    } finally {
+      setLoadingCertificates(false);
+    }
+  };
+
+  const handleDismissNotification = () => {
+    if (notificationCertificate) {
+      const dismissedKey = `dismissed_certs_${user._id}`;
+      const dismissedIds = JSON.parse(sessionStorage.getItem(dismissedKey) || '[]');
+      sessionStorage.setItem(
+        dismissedKey,
+        JSON.stringify([...dismissedIds, notificationCertificate.certificateId])
+      );
+    }
+    setNotificationCertificate(null);
+  };
+
+  // Student Event Creation state
   const fetchEvents = async () => {
+    if (activeTab === 'certificates') return;
     try {
       setLoading(true);
-      const res = await axios.get(`${API_URL}/api/events?level=${activeTab}&college=${user.collegeName}`);
+      const config = user?.token ? { headers: { Authorization: `Bearer ${user.token}` } } : {};
+
+      let url = `${API_URL}/api/events`;
+      if (activeTab === 'intercollege') {
+        url += `?level=intercollege`;
+      } else {
+        url += `?level=${activeTab}&college=${encodeURIComponent(user.collegeName)}`;
+      }
+
+      const res = await axios.get(url, config);
       setEvents(res.data);
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching events:', err);
+      if (err.response?.status === 403 && (err.response?.data?.isBlocked || err.response?.data?.message?.includes('banned'))) {
+        setIsUserBlocked(true);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (user?.collegeName) {
+    if (user?.collegeName && user?.token) {
+      fetchMyCertificates();
+      fetchTeamInvitations();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user?.collegeName && activeTab !== 'certificates') {
       fetchEvents();
+      fetchTeamInvitations();
     }
   }, [activeTab, user]);
 
+  const fetchTeamInvitations = async () => {
+    try {
+      setLoadingInvitations(true);
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const res = await axios.get(`${API_URL}/api/events/team-invitations`, config);
+      setPendingInvitations(res.data || []);
+    } catch (err) {
+      console.error('Error fetching team invitations:', err);
+    } finally {
+      setLoadingInvitations(false);
+    }
+  };
+
+  const handleRespondInvitation = async (eventId, action) => {
+    try {
+      setRespondingInvitationId(eventId);
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const res = await axios.put(
+        `${API_URL}/api/events/${eventId}/team-invitation/respond`,
+        { action },
+        config
+      );
+      alert(res.data?.message || `Invitation ${action}ed successfully.`);
+      fetchTeamInvitations();
+      fetchEvents();
+    } catch (err) {
+      console.error('Error responding to invitation:', err);
+      alert(err.response?.data?.message || 'Failed to respond to team invitation.');
+    } finally {
+      setRespondingInvitationId(null);
+    }
+  };
+
+  const handleOpenReplaceModal = async (event, teamReg) => {
+    try {
+      setReplaceTargetEvent(event);
+      setReplaceTargetReg(teamReg);
+      setSelectedReplacementStudent(null);
+      setReplaceSearchQuery('');
+      setShowReplaceModal(true);
+
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const res = await axios.get(`${API_URL}/api/users/classmates?eventId=${event._id}`, config);
+      setReplaceClassmates(res.data || []);
+    } catch (err) {
+      console.error('Error fetching classmates for replacement:', err);
+      alert('Failed to load eligible candidates for slot replacement.');
+    }
+  };
+
+  const handleConfirmReplaceMember = async () => {
+    if (!selectedReplacementStudent) {
+      alert('Please select a student to fill the remaining spot.');
+      return;
+    }
+    try {
+      setReplacingMember(true);
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const payload = {
+        newStudent: {
+          student: selectedReplacementStudent._id,
+          name: selectedReplacementStudent.name,
+          rollNo: selectedReplacementStudent.studentDetails?.rollNo || '',
+          class: selectedReplacementStudent.studentDetails?.class || '',
+          branch: selectedReplacementStudent.studentDetails?.branch || '',
+          email: selectedReplacementStudent.email,
+          mobileNo: selectedReplacementStudent.studentDetails?.mobileNo || '',
+        }
+      };
+
+      const res = await axios.put(
+        `${API_URL}/api/events/${replaceTargetEvent._id}/replace-team-member`,
+        payload,
+        config
+      );
+      alert(res.data?.message || 'Invitation sent to the new team member!');
+      setShowReplaceModal(false);
+      setReplaceTargetEvent(null);
+      setReplaceTargetReg(null);
+      setSelectedReplacementStudent(null);
+      fetchEvents();
+    } catch (err) {
+      console.error('Error replacing team member:', err);
+      alert(err.response?.data?.message || 'Failed to replace team member.');
+    } finally {
+      setReplacingMember(false);
+    }
+  };
+
   const handleRegister = async (eventId) => {
     const event = events.find(e => e._id === eventId);
-    if (event?.isGroupEvent) {
-      // Open team registration modal
+    if (!event) return;
+
+    if (event.isGroupEvent) {
+      // Group Event Registration
       try {
         const config = {
           headers: { Authorization: `Bearer ${user.token}` }
         };
-        const res = await axios.get(`${API_URL}/api/users/classmates`, config);
+        const res = await axios.get(`${API_URL}/api/users/classmates?eventId=${event._id}`, config);
         setClassmates(res.data);
         
-        // Initialize team members array with max size
+        // Initialize members array with maxTeamSize slots
         const initialMembers = Array(event.maxTeamSize).fill(null);
-        // Add current user as first member (team leader by default)
+        // Current user is leader by default in slot 0
         initialMembers[0] = {
           student: user._id,
           name: user.name,
@@ -93,17 +312,15 @@ const StudentDashboard = () => {
           teamMembers: initialMembers
         });
 
-        // Initialize search queries for each member
         setMemberSearchQueries(Array(event.maxTeamSize).fill(''));
-        
         setSelectedEventForTeam(event);
         setShowTeamModal(true);
       } catch (err) {
         console.error('Error fetching classmates:', err);
-        alert('Failed to load classmates');
+        alert(err.response?.data?.message || 'Failed to load classmates. Please ensure your branch and class profile details are filled.');
       }
     } else {
-      // Individual event registration
+      // Individual Registration
       try {
         const config = {
           headers: { Authorization: `Bearer ${user.token}` }
@@ -114,8 +331,8 @@ const StudentDashboard = () => {
         };
         
         await axios.post(`${API_URL}/api/events/${eventId}/enroll`, registrationData, config);
-        alert('Successfully registered for the event!');
-        fetchEvents(); // Refresh events to show "Registered" status
+        alert('🎉 Congratulations! You have successfully registered for the event.');
+        fetchEvents();
       } catch (err) {
         console.error('Registration Error:', err);
         alert(err.response?.data?.message || 'Failed to register for event');
@@ -125,18 +342,17 @@ const StudentDashboard = () => {
 
   const handleTeamRegister = async () => {
     if (!teamFormData.teamName.trim()) {
-      alert('Please enter team name');
+      alert('Please enter a team name');
       return;
     }
 
-    // Filter out null members and check min team size
     const validMembers = teamFormData.teamMembers.filter(m => m !== null);
-    if (validMembers.length < (selectedEventForTeam?.minTeamSize || 2)) {
-      alert(`Team must have at least ${selectedEventForTeam?.minTeamSize || 2} members`);
+    const minSize = selectedEventForTeam?.minTeamSize || 2;
+    if (validMembers.length < minSize) {
+      alert(`Team must have at least ${minSize} members`);
       return;
     }
 
-    // Check if there's a team leader
     const hasLeader = validMembers.some(m => m.role === 'leader');
     if (!hasLeader) {
       alert('Please select a team leader');
@@ -167,7 +383,7 @@ const StudentDashboard = () => {
       };
       
       await axios.post(`${API_URL}/api/events/${selectedEventForTeam._id}/enroll`, registrationData, config);
-      alert('Team registered successfully!');
+      alert('🎉 Team registered successfully!');
       setShowTeamModal(false);
       fetchEvents();
     } catch (err) {
@@ -189,7 +405,7 @@ const StudentDashboard = () => {
         branch: student.studentDetails?.branch || '',
         email: student.email,
         mobileNo: student.studentDetails?.mobileNo || '',
-        role: slotIndex === 0 ? 'leader' : 'member' // First member is leader by default
+        role: slotIndex === 0 ? 'leader' : 'member'
       };
     } else {
       newMembers[slotIndex] = null;
@@ -201,7 +417,6 @@ const StudentDashboard = () => {
     const newMembers = [...teamFormData.teamMembers];
     if (newMembers[slotIndex]) {
       if (role === 'leader') {
-        // If setting to leader, unset all other leaders
         newMembers.forEach((m, idx) => {
           if (m && idx !== slotIndex) {
             m.role = 'member';
@@ -213,14 +428,12 @@ const StudentDashboard = () => {
     setTeamFormData({ ...teamFormData, teamMembers: newMembers });
   };
 
-  // Get all selected student IDs
   const getSelectedStudentIds = () => {
     return teamFormData.teamMembers
       .filter(m => m !== null)
       .map(m => m.student);
   };
 
-  // Filter classmates based on search query
   const getFilteredClassmates = (searchQuery) => {
     if (!searchQuery.trim()) return classmates;
     const query = searchQuery.toLowerCase();
@@ -231,7 +444,7 @@ const StudentDashboard = () => {
   };
 
   const handleUnenroll = async (eventId) => {
-    if (!window.confirm('Are you want to unregister the event?')) {
+    if (!window.confirm('Are you sure you want to cancel your registration for this event?')) {
       return;
     }
 
@@ -241,8 +454,9 @@ const StudentDashboard = () => {
       };
       
       await axios.post(`${API_URL}/api/events/${eventId}/unenroll`, {}, config);
-      alert('Successfully unregistered from the event!');
-      fetchEvents(); // Refresh events to show "Register" status again
+      alert('Successfully cancelled your registration.');
+      fetchEvents();
+      fetchTeamInvitations();
     } catch (err) {
       console.error('Unenrollment Error:', err);
       alert(err.response?.data?.message || 'Failed to unregister from event');
@@ -253,19 +467,18 @@ const StudentDashboard = () => {
     if (event.isGroupEvent) {
       return event.registrations?.some(reg => {
         if (reg.teamLeader) {
-          // Check if user is team leader
           if (reg.teamLeader === user._id || reg.teamLeader?._id === user._id) {
             return true;
           }
-          // Check if user is team member (and not unregistered)
           return reg.teamMembers?.some(tm => 
-            (tm.student === user._id || tm.student?._id === user._id) && !tm.isUnregistered
+            (tm.student === user._id || tm.student?._id === user._id) && 
+            !tm.isUnregistered && 
+            tm.status !== 'left'
           );
         }
         return false;
       });
     }
-    // Individual event
     return event.registrations?.some(reg => reg.student === user._id || reg.student?._id === user._id);
   };
 
@@ -277,7 +490,9 @@ const StudentDashboard = () => {
           return true;
         }
         return reg.teamMembers?.some(tm => 
-          tm.student === user._id || tm.student?._id === user._id
+          (tm.student === user._id || tm.student?._id === user._id) &&
+          !tm.isUnregistered &&
+          tm.status !== 'left'
         );
       }
       return false;
@@ -290,17 +505,31 @@ const StudentDashboard = () => {
   };
 
   const isEligible = (event) => {
-    if (event.level === 'department') {
-      return event.department === 'ALL' || event.department === user?.studentDetails?.branch;
+    // 1. Inter-College / College Check
+    const isInter = event.isInterCollege || event.level === 'intercollege';
+    if (!isInter) {
+      const myCollege = (user?.collegeName || '').trim().toLowerCase();
+      const eventCollege = (event.college || '').trim().toLowerCase();
+      const isDIEMS1 = myCollege.includes('diems') || myCollege.includes('deogiri');
+      const isDIEMS2 = eventCollege.includes('diems') || eventCollege.includes('deogiri');
+      const sameCollege = myCollege === eventCollege || (isDIEMS1 && isDIEMS2);
+      if (!sameCollege) return false;
     }
-    return true; // Institute and Club levels are open to all students in the college
-  };
 
-  const tabs = [
-    { id: 'institute', label: 'Institute Level', icon: Building2 },
-    { id: 'department', label: 'Department Level', icon: LayoutGrid },
-    { id: 'club', label: 'Club Level', icon: Users },
-  ];
+    // 2. Dynamic Department Check
+    const allowedDepts = (Array.isArray(event.departments) && event.departments.length > 0)
+      ? event.departments
+      : (event.department ? event.department.split(',').map(s => s.trim()) : ['ALL']);
+
+    const isAll = allowedDepts.includes('ALL') || allowedDepts.some(d => d.toUpperCase() === 'ALL');
+    if (!isAll) {
+      const userBranch = (user?.studentDetails?.branch || '').trim().toUpperCase();
+      if (!userBranch) return false;
+      return allowedDepts.some(d => d.trim().toUpperCase() === userBranch);
+    }
+
+    return true;
+  };
 
   const getEventPriority = (event) => {
     const expired = isExpired(event);
@@ -310,338 +539,1041 @@ const StudentDashboard = () => {
     if (!registered && !expired && !hasWinners) return 1; // Live & Not Registered
     if (registered && !expired && !hasWinners) return 2;  // Registered & Live
     if (hasWinners) return 3;                             // Completed (Leaderboard)
-    if (expired && !hasWinners) return 4;                // Registrations Closed
+    if (expired && !hasWinners) return 4;                // Closed
     return 5;
   };
 
-  const filteredEvents = events
-    .filter(event => 
-      event.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      event.organizer?.name?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    .sort((a, b) => getEventPriority(a) - getEventPriority(b));
+  const availableCategories = useMemo(() => {
+    const cats = new Set();
+    events.forEach(e => {
+      if (e.category) cats.add(e.category);
+    });
+    return ['ALL', ...Array.from(cats)];
+  }, [events]);
+
+  const filteredEvents = useMemo(() => {
+    return events
+      .filter(event => {
+        const matchesSearch = 
+          event.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+          event.organizer?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (event.clubName && event.clubName.toLowerCase().includes(searchQuery.toLowerCase()));
+        
+        const matchesCategory = categoryFilter === 'ALL' || event.category === categoryFilter;
+
+        return matchesSearch && matchesCategory;
+      })
+      .sort((a, b) => getEventPriority(a) - getEventPriority(b));
+  }, [events, searchQuery, categoryFilter]);
+
+  const filteredCertificates = useMemo(() => {
+    return myCertificates.filter(cert => {
+      const matchesSearch = 
+        cert.eventName.toLowerCase().includes(certificateSearchQuery.toLowerCase()) ||
+        (cert.teamName && cert.teamName.toLowerCase().includes(certificateSearchQuery.toLowerCase()));
+      const matchesType = certificateTypeFilter === 'ALL' || cert.certificateType === certificateTypeFilter;
+      return matchesSearch && matchesType;
+    });
+  }, [myCertificates, certificateSearchQuery, certificateTypeFilter]);
+
+  const tabs = [
+    { id: 'intercollege', label: 'Inter-College', icon: Globe, desc: 'Multi-campus open competitions' },
+    { id: 'institute', label: 'Institute Level', icon: Building2, desc: 'Campus-wide flagships' },
+    { id: 'department', label: 'Department Level', icon: LayoutGrid, desc: 'Branch-specific contests' },
+    { id: 'club', label: 'Club Level', icon: Users, desc: 'Societies & student clubs' },
+    { id: 'certificates', label: `My Certificates (${myCertificates.length})`, icon: Award, desc: 'Verified institutional credentials' },
+  ];
+
+  const registeredCount = useMemo(() => {
+    return events.filter(e => isRegistered(e)).length;
+  }, [events]);
+
+  if (user?.isBlocked || isUserBlocked) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 sm:p-10 text-center border-2 border-red-200 shadow-2xl shadow-red-500/10 animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-20 h-20 rounded-3xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-5 border border-red-200 shadow-inner">
+            <ShieldAlert className="w-10 h-10" />
+          </div>
+          <span className="inline-block px-3.5 py-1 rounded-full bg-red-100 text-red-800 text-xs font-black uppercase tracking-wider mb-3">
+            Account Restricted
+          </span>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">
+            You Have Been Banned by College Admin
+          </h2>
+          <p className="text-slate-600 text-xs sm:text-sm leading-relaxed mb-6">
+            Your UniVance student account has been restricted by your college administration. Please contact your college administration, academic office, or department head for assistance and account review.
+          </p>
+
+          <div className="bg-slate-50 rounded-2xl p-4 text-xs text-left mb-6 border border-slate-200 space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-bold uppercase text-[10px]">Student Name:</span>
+              <span className="font-bold text-slate-800">{user?.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-bold uppercase text-[10px]">College:</span>
+              <span className="font-bold text-slate-800">{user?.collegeName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-bold uppercase text-[10px]">Department:</span>
+              <span className="font-bold text-teal-700">{user?.studentDetails?.branch || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-bold uppercase text-[10px]">Roll Number:</span>
+              <span className="font-bold text-slate-800">{user?.studentDetails?.rollNo || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-bold uppercase text-[10px]">Email:</span>
+              <span className="font-medium text-slate-600 truncate max-w-[180px]">{user?.email}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
+            >
+              Refresh Status
+            </button>
+            <button
+              onClick={() => {
+                logout();
+                navigate('/login');
+              }}
+              className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs transition shadow-md shadow-red-500/20"
+            >
+              Logout & Exit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Welcome Header */}
-      <div className="mb-10 flex flex-col md:flex-row items-center justify-center gap-6">
-        <img src="/logo.png" alt="CollegeSphere Logo" className="h-24 w-auto drop-shadow-md" />
-        <div className="text-center md:text-left">
-          <h1 className="text-4xl font-extrabold text-gray-900 mb-2">
-            Discover <span className="text-blue-600">Events</span>
-          </h1>
-          <p className="text-gray-500 text-lg font-medium">Find and register for upcoming events in your college.</p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-300">
+      {/* Student Welcome Banner */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-[#003B5C] via-slate-900 to-[#004e6b] rounded-3xl p-6 sm:p-10 mb-10 text-white shadow-xl shadow-slate-900/10 border border-slate-800">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/10 backdrop-blur-md text-xs font-bold text-teal-300 border border-white/10">
+              <Sparkles className="w-3.5 h-3.5 text-teal-300" />
+              <span>{user?.collegeName} Student Portal</span>
+            </div>
+            
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
+              Hello, <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-300 to-teal-300">{user?.name}</span> 👋
+            </h1>
+            
+            <p className="text-slate-300 text-sm sm:text-base max-w-xl leading-relaxed">
+              Discover competitions, technical hackathons, cultural festivals, and sports leagues across campuses.
+            </p>
+
+            {/* Student Profile Quick Badges */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 text-xs">
+              <span className="px-3 py-1 bg-white/10 rounded-lg font-bold border border-white/10">
+                Dept: <span className="text-teal-300">{user?.studentDetails?.branch || 'Not Set'}</span>
+              </span>
+              <span className="px-3 py-1 bg-white/10 rounded-lg font-bold border border-white/10">
+                Class: <span className="text-teal-300">{user?.studentDetails?.class || 'Not Set'}</span>
+              </span>
+              <span className="px-3 py-1 bg-white/10 rounded-lg font-bold border border-white/10">
+                Roll: <span className="text-teal-300">{user?.studentDetails?.rollNo || 'Not Set'}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Metrics Cards & Create Event CTA */}
+          <div className="flex flex-col sm:flex-row lg:flex-col items-center gap-3 shrink-0">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full">
+              <div className="bg-white/10 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10 text-center">
+                <span className="text-2xl sm:text-3xl font-black text-white">{events.length}</span>
+                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-0.5">Events</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10 text-center">
+                <span className="text-2xl sm:text-3xl font-black text-teal-300">{registeredCount}</span>
+                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-0.5">Enrolled</p>
+              </div>
+              <div 
+                onClick={() => setActiveTab('certificates')}
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10 text-center cursor-pointer transition group"
+                title="Click to view all your earned certificates"
+              >
+                <span className="text-2xl sm:text-3xl font-black text-amber-300 group-hover:scale-110 inline-block transition">{myCertificates.length}</span>
+                <p className="text-[10px] font-bold text-amber-200 uppercase tracking-wider mt-0.5 flex items-center justify-center gap-1">
+                  <Award className="w-3 h-3 text-amber-300" /> Certificates
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Background glow circle */}
+        <div className="absolute -right-20 -top-20 w-80 h-80 bg-teal-500/20 rounded-full blur-3xl pointer-events-none" />
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-6 mb-8 bg-white p-2.5 rounded-2xl shadow-sm border border-gray-100 w-fit mx-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-3 px-8 py-4 rounded-xl font-black text-lg transition-all duration-200 ${
-              activeTab === tab.id
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                : 'text-[#003B5C] hover:bg-gray-50 hover:text-blue-600'
-            }`}
-          >
-            <tab.icon className="w-5 h-5" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Requirement 6: Pending Team Invitations Notification Section */}
+      {pendingInvitations.length > 0 && (
+        <div className="mb-10 bg-gradient-to-r from-purple-900/90 via-slate-900 to-indigo-950 rounded-3xl p-6 sm:p-7 border-2 border-purple-500/40 shadow-2xl shadow-purple-950/30 text-white animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-purple-500/20">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-purple-500/20 flex items-center justify-center border border-purple-400/30 text-purple-300 shadow-inner">
+                <Users className="w-5 h-5 text-purple-300 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
+                  Team Registration Requests
+                  <span className="px-2.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 text-xs font-bold border border-purple-400/30">
+                    {pendingInvitations.length} Pending
+                  </span>
+                </h3>
+                <p className="text-xs text-purple-200/80">
+                  You have been invited to participate in campus events. Confirm or decline your spot below.
+                </p>
+              </div>
+            </div>
+          </div>
 
-      {/* Search and Filter */}
-      <div className="mb-8 flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Search events by name, organizer..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-4 bg-white border border-gray-100 rounded-2xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {pendingInvitations.map((inv) => (
+              <div
+                key={inv.eventId}
+                className="bg-white/5 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-purple-400/20 hover:border-purple-400/40 transition flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-500/30">
+                        {inv.eventCategory || 'Competition'}
+                      </span>
+                      <h4 className="font-black text-white text-base mt-1.5">{inv.eventName}</h4>
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-300 bg-white/10 px-2.5 py-1 rounded-lg">
+                      {new Date(inv.eventDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+
+                  <div className="bg-purple-950/40 p-3 rounded-xl border border-purple-500/15 mb-4 text-xs space-y-1">
+                    <p className="text-purple-200">
+                      Team: <strong className="text-white font-bold">{inv.teamName}</strong>
+                    </p>
+                    <p className="text-purple-300/80 text-[11px]">
+                      Leader / Creator: <span className="text-purple-100 font-semibold">{inv.teamLeaderName}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                  <button
+                    onClick={() => handleRespondInvitation(inv.eventId, 'accept')}
+                    disabled={respondingInvitationId === inv.eventId}
+                    className="flex-1 py-2.5 px-4 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20 transition disabled:opacity-50"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{respondingInvitationId === inv.eventId ? 'Processing...' : 'Accept & Join'}</span>
+                  </button>
+                  <button
+                    onClick={() => handleRespondInvitation(inv.eventId, 'reject')}
+                    disabled={respondingInvitationId === inv.eventId}
+                    className="flex-1 py-2.5 px-4 bg-red-500/20 hover:bg-red-500/30 active:scale-95 text-red-200 hover:text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-red-500/30 transition disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Decline</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* Tabs - Level Selector */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8 bg-slate-100/80 p-2 rounded-2xl max-w-2xl mx-auto border border-slate-200/80">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`w-full sm:w-auto flex-1 flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 ${
+                isActive
+                  ? 'bg-white text-blue-600 shadow-md shadow-slate-200/50 border border-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Event Grid */}
+      {/* Main Content Branch: Certificates Vault vs Events Browser */}
+      {activeTab === 'certificates' ? (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Certificates Toolbar */}
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <button
+                onClick={() => setCertificateTypeFilter('ALL')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+                  certificateTypeFilter === 'ALL'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All Certificates ({myCertificates.length})
+              </button>
+              <button
+                onClick={() => setCertificateTypeFilter('winner')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  certificateTypeFilter === 'winner'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                }`}
+              >
+                <Trophy className="w-3.5 h-3.5" />
+                <span>Winner ({myCertificates.filter(c => c.certificateType === 'winner').length})</span>
+              </button>
+              <button
+                onClick={() => setCertificateTypeFilter('participant')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  certificateTypeFilter === 'participant'
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'bg-teal-50 text-teal-800 hover:bg-teal-100'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>Participant ({myCertificates.filter(c => c.certificateType === 'participant').length})</span>
+              </button>
+            </div>
+
+            <div className="relative w-full md:w-80">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search certificates by event or team..."
+                value={certificateSearchQuery}
+                onChange={(e) => setCertificateSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+              {certificateSearchQuery && (
+                <button
+                  onClick={() => setCertificateSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Certificates Grid */}
+          {loadingCertificates ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3].map(n => (
+                <div key={n} className="bg-white rounded-3xl h-64 animate-pulse border border-slate-200" />
+              ))}
+            </div>
+          ) : filteredCertificates.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredCertificates.map((cert) => {
+                const isWinner = cert.certificateType === 'winner';
+                return (
+                  <div
+                    key={cert.certificateId}
+                    className={`bg-white rounded-3xl overflow-hidden shadow-xs hover:shadow-xl transition-all duration-300 border-2 flex flex-col justify-between ${
+                      isWinner ? 'border-amber-300 hover:border-amber-400' : 'border-teal-200 hover:border-teal-300'
+                    }`}
+                  >
+                    {/* Header Banner */}
+                    <div className={`p-5 text-white ${
+                      isWinner
+                        ? 'bg-gradient-to-br from-amber-600 via-amber-700 to-orange-800'
+                        : 'bg-gradient-to-br from-[#003B5C] via-slate-900 to-[#004e6b]'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold tracking-widest uppercase bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-white">
+                            {cert.eventCategory || 'Technical Event'}
+                          </span>
+                          {cert.isEventDeleted && (
+                            <span className="text-[9px] font-bold tracking-wider bg-black/30 backdrop-blur-md px-2 py-0.5 rounded-full text-white/90 border border-white/20">
+                              Permanent Vault
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-[11px] font-bold text-white/95">
+                          {isWinner ? <Trophy className="w-4 h-4 text-amber-200" /> : <Award className="w-4 h-4 text-teal-200" />}
+                          <span>{isWinner ? cert.positionText : 'Participant'}</span>
+                        </div>
+                      </div>
+
+                      <h3 className="text-lg font-black tracking-tight line-clamp-1">{cert.eventName}</h3>
+                      <p className="text-[11px] text-white/80 line-clamp-1 mt-0.5">
+                        Deogiri Institute of Engg & Mgmt Studies
+                      </p>
+                    </div>
+
+                    {/* Card Body */}
+                    <div className="p-5 flex-1 space-y-3">
+                      <div className="space-y-1 text-xs">
+                        <p className="text-slate-400 font-semibold text-[11px] uppercase tracking-wider">Recipient Name</p>
+                        <p className="font-black text-slate-900 text-sm">{cert.studentName}</p>
+                        {cert.teamName && (
+                          <p className="text-[11px] text-purple-700 font-bold bg-purple-50 inline-block px-2 py-0.5 rounded">
+                            Team: {cert.teamName}
+                          </p>
+                        )}
+                        {(cert.rollNo || cert.branch) && (
+                          <p className="text-[11px] text-slate-500 font-medium">
+                            {cert.rollNo && `Roll: ${cert.rollNo}`} {cert.branch && `• Dept: ${cert.branch}`} {cert.class && `• Class: ${cert.class}`}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-slate-600">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">EVENT DATE</span>
+                          <strong className="text-slate-700 font-semibold">{cert.eventDateText}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">ISSUED DATE</span>
+                          <strong className="text-slate-700 font-semibold">{cert.issueDateText}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Actions */}
+                    <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-2">
+                      <button
+                        onClick={() => setSelectedCertificateForView(cert)}
+                        className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition ${
+                          isWinner
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
+                            : 'bg-gradient-to-r from-[#003B5C] to-[#00B5AD] hover:opacity-95 text-white'
+                        }`}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>View & Download Certificate</span>
+                      </button>
+
+                      {cert.customCertificateUrl && (
+                        <a
+                          href={cert.customCertificateUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-[11px] flex items-center justify-center gap-1.5 border border-purple-200 transition"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Open in Drive / Personalized</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 max-w-md mx-auto shadow-xs">
+              <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mx-auto mb-4 border border-teal-100">
+                <Award className="w-8 h-8" />
+              </div>
+              <h3 className="font-bold text-slate-900 text-base mb-1">No Certificates Found</h3>
+              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                {certificateSearchQuery
+                  ? 'No certificates match your search query.'
+                  : 'You do not have any certificates allocated yet. Participate in campus events to earn official verified credentials!'}
+              </p>
+              <button
+                onClick={() => {
+                  setCertificateSearchQuery('');
+                  setActiveTab('institute');
+                }}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition"
+              >
+                Explore Campus Events
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Search and Category Filter Toolbar */}
+      <div className="mb-8 space-y-4">
+        <div className="flex flex-col md:flex-row gap-4 max-w-3xl mx-auto">
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search by event title, organizer, or club..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-10 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-none transition text-sm font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Category Filter Chips */}
+        {availableCategories.length > 2 && (
+          <div className="flex flex-wrap items-center justify-center gap-2 max-w-3xl mx-auto">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
+              <Filter className="w-3 h-3" /> Filter:
+            </span>
+            {availableCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategoryFilter(cat)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  categoryFilter === cat
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {cat === 'ALL' ? 'All Categories' : cat}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Events Grid */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map(n => (
-            <div key={n} className="bg-white rounded-2xl h-96 animate-pulse border border-gray-100"></div>
+            <div key={n} className="bg-white rounded-3xl h-96 animate-pulse border border-slate-200" />
           ))}
         </div>
       ) : filteredEvents.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredEvents.map((event) => (
-            <div
-              key={event._id}
-              className="group bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 flex flex-col"
-            >
-              {/* Event Image */}
-              <div className="h-52 overflow-hidden relative">
-                <img
-                  src={event.photo || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&q=80'}
-                  alt={event.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                />
-                <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
-                  <span className="bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-blue-600 uppercase tracking-wider">
-                    {event.category || 'Event'}
-                  </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                    event.isGroupEvent
-                      ? 'bg-purple-500/90 backdrop-blur text-white'
-                      : 'bg-green-500/90 backdrop-blur text-white'
-                  }`}>
-                    {event.isGroupEvent ? 'Team/Group' : 'Individual'}
-                  </span>
-                </div>
-                {event.level === 'club' && event.clubName && (
-                  <div className="absolute top-4 left-4 bg-purple-100/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-purple-600 uppercase tracking-wider">
-                    {event.clubName}
-                  </div>
-                )}
-              </div>
+          {filteredEvents.map((event) => {
+            const registered = isRegistered(event);
+            const expired = isExpired(event);
+            const eligible = isEligible(event);
+            const hasWinners = event.winners && event.winners.length > 0;
+            const isFull = event.registrationLimit > 0 && event.registrations.length >= event.registrationLimit;
+            const eventCerts = myCertificates.filter(c => String(c.eventId) === String(event._id));
 
-              {/* Event Content */}
-              <div className="p-6 flex-1 flex flex-col">
-                <h3 className="text-xl font-bold text-gray-900 mb-3 group-hover:text-blue-600 transition">
-                  {event.name}
-                </h3>
+            return (
+              <div
+                key={event._id}
+                className="group bg-white rounded-3xl overflow-hidden shadow-xs hover:shadow-xl transition-all duration-300 border border-slate-200 flex flex-col relative"
+              >
+                {/* Event Photo Cover */}
+                <div className="h-52 overflow-hidden relative bg-slate-900">
+                  <img
+                    src={event.photo || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&q=80'}
+                    alt={event.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500 opacity-90"
+                  />
 
-                {/* Event Description */}
-                <div className="mb-4 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
-                  <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                    <Info className="w-3 h-3" /> Description
-                  </div>
-                  <p className="text-sm text-gray-600 line-clamp-3 leading-relaxed">
-                    {event.description}
-                  </p>
-                </div>
-                
-                <div className="space-y-3 mb-4">
-                  <div className={`flex items-center gap-2 text-sm ${isExpired(event) ? 'text-red-500 font-bold' : 'text-gray-500'}`}>
-                    <Calendar className={`w-4 h-4 ${isExpired(event) ? 'text-red-500' : 'text-blue-500'}`} />
-                    <span className="font-medium">Registration Deadline:</span>
-                    <span>{new Date(event.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
-                  </div>
-                  <div className={`flex items-center gap-2 text-sm ${isExpired(event) ? 'text-red-500 font-bold' : 'text-gray-500'}`}>
-                    <Clock className={`w-4 h-4 ${isExpired(event) ? 'text-red-500' : 'text-yellow-500'}`} />
-                    <span>{event.time}</span>
-                    {isExpired(event) && <span className="ml-1 text-[10px] uppercase tracking-tighter">(Expired)</span>}
-                  </div>
-                  <div className="flex items-center text-gray-500 gap-2 text-sm">
-                    <MapPin className="w-4 h-4 text-red-500" />
-                    <span className="truncate">{event.college}</span>
-                  </div>
-                  {event.registrationLimit > 0 && (
-                    <div className="flex items-center text-gray-500 gap-2 text-sm">
-                      <Users className={`w-4 h-4 ${event.registrations.length >= event.registrationLimit ? 'text-red-500' : 'text-green-500'}`} />
-                      <span className="font-medium">Capacity:</span>
-                      <span className={event.registrations.length >= event.registrationLimit ? 'text-red-500 font-bold' : ''}>
-                        {event.registrations.length} / {event.registrationLimit}
+                  {/* Top-right Badges */}
+                  <div className="absolute top-3.5 right-3.5 flex flex-col gap-1.5 items-end">
+                    {event.category && (
+                      <span className="bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-white uppercase tracking-wider border border-white/10 shadow-xs">
+                        {event.category}
                       </span>
+                    )}
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-xs ${
+                      event.isGroupEvent
+                        ? 'bg-purple-600/90 text-white backdrop-blur-md'
+                        : 'bg-teal-600/90 text-white backdrop-blur-md'
+                    }`}>
+                      {event.isGroupEvent ? `Team (${event.minTeamSize}-${event.maxTeamSize})` : 'Individual'}
+                    </span>
+                  </div>
+
+                  {/* Top-left Badges */}
+                  <div className="absolute top-3.5 left-3.5 flex flex-col gap-1.5 items-start">
+                    {(event.isInterCollege || event.level === 'intercollege') ? (
+                      <div className="bg-purple-950/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black text-purple-200 uppercase tracking-wider border border-purple-400/40 shadow-lg">
+                        🌐 Inter-College
+                      </div>
+                    ) : (
+                      <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-slate-300 uppercase tracking-wider border border-slate-700">
+                        🏛️ Intra-College
+                      </div>
+                    )}
+                    {event.level === 'club' && event.clubName && (
+                      <div className="bg-purple-950/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-purple-300 uppercase tracking-wider border border-purple-500/20">
+                        {event.clubName}
+                      </div>
+                    )}
+                    {event.departments && !event.departments.includes('ALL') && event.departments.length > 0 ? (
+                      <div className="bg-teal-950/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-teal-300 uppercase tracking-wider border border-teal-500/30">
+                        Depts: {event.departments.join(', ')}
+                      </div>
+                    ) : event.level === 'department' ? (
+                      <div className="bg-blue-950/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-blue-300 uppercase tracking-wider border border-blue-500/20">
+                        Dept: {event.department}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Live / Status Banner at bottom of image */}
+                  <div className="absolute bottom-3 left-3.5 right-3.5 flex items-center justify-between text-xs">
+                    {hasWinners ? (
+                      <span className="px-3 py-1 rounded-lg bg-amber-500 text-white font-bold flex items-center gap-1 shadow-xs">
+                        <Trophy className="w-3.5 h-3.5" /> Results Out
+                      </span>
+                    ) : registered ? (
+                      <span className="px-3 py-1 rounded-lg bg-emerald-500 text-white font-bold flex items-center gap-1 shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Enrolled
+                      </span>
+                    ) : expired ? (
+                      <span className="px-3 py-1 rounded-lg bg-red-600/90 text-white font-bold shadow-xs">
+                        Registration Closed
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 rounded-lg bg-blue-600/90 text-white font-bold flex items-center gap-1 shadow-xs">
+                        <Zap className="w-3 h-3" /> Live Event
+                      </span>
+                    )}
+
+                    {eventCerts.length > 0 && (
+                      <span className="px-2.5 py-1 rounded-lg bg-teal-600 text-white font-bold flex items-center gap-1 shadow-xs text-[10px]">
+                        <Award className="w-3 h-3" /> Cert Ready
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Card Body */}
+                <div className="p-6 flex-1 flex flex-col">
+                  {/* Title */}
+                  <h3 className="text-xl font-black text-slate-900 mb-2 group-hover:text-blue-600 transition tracking-tight">
+                    {event.name}
+                  </h3>
+
+                  {/* Description Box with full expand/collapse (Requirement 1) */}
+                  <div className="mb-4">
+                    <p className={`text-xs text-slate-600 leading-relaxed whitespace-pre-line ${
+                      expandedDescriptionMap[event._id] ? '' : 'line-clamp-2'
+                    }`}>
+                      {event.description}
+                    </p>
+                    {event.description && event.description.length > 90 && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedDescriptionMap(prev => ({
+                          ...prev,
+                          [event._id]: !prev[event._id]
+                        }))}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:underline mt-1 inline-flex items-center gap-1"
+                      >
+                        {expandedDescriptionMap[event._id] ? 'Show Less' : 'Read Full Description'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Event Details Grid */}
+                  <div className="space-y-2.5 mb-5 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs">
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Calendar className={`w-4 h-4 shrink-0 ${expired ? 'text-red-500' : 'text-blue-500'}`} />
+                      <span className="font-semibold">Deadline:</span>
+                      <span className={expired ? 'text-red-600 font-bold' : ''}>
+                        {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Clock className={`w-4 h-4 shrink-0 ${expired ? 'text-red-500' : 'text-amber-500'}`} />
+                      <span className="font-semibold">Time:</span>
+                      <span>{event.time}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Building2 className="w-4 h-4 shrink-0 text-indigo-500" />
+                      <span className="font-semibold">Host College:</span>
+                      <span className="truncate font-bold text-slate-900">{event.college}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Layers className="w-4 h-4 shrink-0 text-teal-600" />
+                      <span className="font-semibold">Eligible Depts:</span>
+                      <span className="truncate font-semibold text-teal-700">
+                        {event.departments && !event.departments.includes('ALL') && event.departments.length > 0
+                          ? event.departments.join(', ')
+                          : (event.department || 'All Departments')}
+                      </span>
+                    </div>
+
+                    {/* Registration Capacity Progress Bar */}
+                    {event.registrationLimit > 0 && (
+                      <div className="pt-2 border-t border-slate-200/60">
+                        <div className="flex justify-between items-center text-[11px] font-bold mb-1">
+                          <span className="text-slate-500">Capacity</span>
+                          <span className={isFull ? 'text-red-600 font-bold' : 'text-slate-700'}>
+                            {event.registrations.length} / {event.registrationLimit} {event.isGroupEvent ? 'teams' : 'slots'}
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all duration-300 ${
+                              isFull ? 'bg-red-500' : 'bg-blue-600'
+                            }`}
+                            style={{ 
+                              width: `${Math.min(100, (event.registrations.length / event.registrationLimit) * 100)}%` 
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Details (UPI) - If Enrolled */}
+                  {registered && event.upiId && (
+                    <div className="mb-4 bg-blue-50/80 p-3.5 rounded-2xl border border-blue-200/80 text-xs animate-in fade-in">
+                      <div className="flex items-center justify-between font-bold text-blue-900 mb-1">
+                        <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-blue-600">
+                          <CreditCard className="w-3.5 h-3.5" /> Payment Required
+                        </span>
+                        <span className="font-mono text-blue-700 font-bold">{event.upiId}</span>
+                      </div>
+                      <p className="text-[11px] text-blue-600">
+                        Please pay registration fees via UPI to confirm entry.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Requirement 6: Team Registration Summary & Invitation Statuses */}
+                  {event.isGroupEvent && registered && (() => {
+                    const teamReg = getTeamRegistration(event);
+                    if (!teamReg) return null;
+                    const isLeader = teamReg.teamLeader === user._id || teamReg.teamLeader?._id === user._id;
+                    const hasRejectedMember = teamReg.teamMembers?.some(m => m.status === 'rejected');
+                    const hasLeftMember = teamReg.teamMembers?.some(m => m.status === 'left' || m.isUnregistered);
+                    const hasVacatedMember = hasRejectedMember || hasLeftMember;
+                    const hasPendingMember = teamReg.teamMembers?.some(m => m.status === 'pending');
+                    const isFullyConfirmed = teamReg.status === 'confirmed' && !hasVacatedMember;
+
+                    return (
+                      <div className="mb-4 bg-purple-50/90 p-4 rounded-2xl border border-purple-200 text-xs">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-black text-purple-900">Team: {teamReg.teamName}</span>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                            isFullyConfirmed
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : hasVacatedMember
+                                ? 'bg-red-100 text-red-800 border border-red-300'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}>
+                            {isFullyConfirmed ? 'Confirmed' : hasLeftMember ? 'Member Left / Incomplete' : hasRejectedMember ? 'Request Rejected' : 'Pending Approvals'}
+                          </span>
+                        </div>
+
+                        {/* Vacated / Rejected Alert for Leader */}
+                        {hasVacatedMember && isLeader && (
+                          <div className="mb-2.5 p-2.5 bg-red-100/90 border border-red-300 rounded-xl text-red-900 text-[11px]">
+                            <p className="font-bold flex items-center gap-1 mb-1">
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                              {hasLeftMember 
+                                ? 'A teammate cancelled their registration and left the team!'
+                                : 'A teammate declined the invitation.'}
+                            </p>
+                            <p className="text-red-700 mb-2">
+                              Your team registration is incomplete. Existing accepted members stay intact—only fill the open spot.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenReplaceModal(event, teamReg)}
+                              className="w-full py-1.5 px-3 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold rounded-lg text-xs transition shadow-xs flex items-center justify-center gap-1.5"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Fill Remaining Spot (Replace Member)</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Informational Alert for non-leader teammates */}
+                        {hasVacatedMember && !isLeader && (
+                          <div className="mb-2.5 p-2 bg-amber-100 border border-amber-200 rounded-xl text-amber-900 text-[11px] flex items-center gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>A teammate left or declined. The team leader needs to invite a replacement to re-confirm.</span>
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5 pt-1">
+                          {teamReg.teamMembers?.map((m, idx) => {
+                            const isMe = (m.student === user._id || m.student?._id === user._id);
+                            const isLeft = m.status === 'left' || m.isUnregistered;
+                            const isRejected = m.status === 'rejected';
+
+                            return (
+                              <div key={idx} className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                                isLeft || isRejected 
+                                  ? 'bg-red-50/80 border-red-200' 
+                                  : 'bg-white/70 border-purple-100'
+                              }`}>
+                                <div className="truncate mr-2">
+                                  <span className={`font-medium ${isLeft || isRejected ? 'line-through text-red-500' : 'text-slate-800'}`}>
+                                    {m.name || 'Member'}
+                                  </span>
+                                  {m.rollNo && <span className="text-slate-400 text-[10px] ml-1">({m.rollNo})</span>}
+                                  {isMe && <span className="font-bold text-purple-700 text-[10px] ml-1">(You)</span>}
+                                </div>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ${
+                                  m.status === 'accepted'
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : isLeft
+                                      ? 'bg-red-200 text-red-800 font-extrabold'
+                                      : isRejected
+                                        ? 'bg-red-100 text-red-700 font-extrabold'
+                                        : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {m.status === 'accepted' ? 'Accepted' : isLeft ? 'Left Team' : isRejected ? 'Rejected' : 'Pending'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Organizer Contact Summary */}
+                  <div className="pt-3 border-t border-slate-100 mb-4 flex items-center justify-between text-xs text-slate-500">
+                    <div className="truncate">
+                      <span className="font-bold text-slate-700">{event.organizer?.name}</span>
+                      <span className="text-[10px] text-slate-400 block truncate">
+                        {event.organizer?.organizerDetails?.contactEmail || event.organizer?.email}
+                      </span>
+                    </div>
+                    {event.organizer?.organizerDetails?.mobileNo && (
+                      <a
+                        href={`tel:${event.organizer.organizerDetails.mobileNo}`}
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                        title="Call Organizer"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Unregister Option */}
+                  {registered && !expired && (
+                    <button
+                      onClick={() => handleUnenroll(event._id)}
+                      className="mb-2.5 w-full py-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 transition border border-red-200"
+                    >
+                      Cancel Registration
+                    </button>
+                  )}
+
+                  {/* Primary Action Button */}
+                  <button
+                    onClick={() => {
+                      if (hasWinners) {
+                        setSelectedEventForLeaderboard(event);
+                        setShowLeaderboardModal(true);
+                      } else {
+                        handleRegister(event._id);
+                      }
+                    }}
+                    disabled={!hasWinners && (!eligible || registered || expired || event.isPaused || isFull)}
+                    className={`mt-auto w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                      hasWinners
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25'
+                        : registered
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
+                          : (!eligible || expired || event.isPaused || isFull)
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                            : 'bg-gradient-to-r from-blue-600 to-[#00B5AD] hover:from-blue-500 hover:to-[#00c7be] text-white shadow-lg shadow-blue-500/20 hover:scale-[1.01]'
+                    }`}
+                  >
+                    {hasWinners ? (
+                      <>
+                        <Trophy className="w-4 h-4" />
+                        <span>View Leaderboard</span>
+                      </>
+                    ) : registered ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>Enrolled in Event</span>
+                      </>
+                    ) : expired ? (
+                      <span>Registration Closed</span>
+                    ) : event.isPaused ? (
+                      <span>Registration Paused</span>
+                    ) : isFull ? (
+                      <span>Event Capacity Full</span>
+                    ) : !eligible ? (
+                      <span>Restricted to {event.department}</span>
+                    ) : (
+                      <>
+                        <span>{event.isGroupEvent ? 'Form Team & Register' : 'Register Now'}</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+
+                  {/* Certificates available for this event */}
+                  {eventCerts.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
+                      {eventCerts.map((cert) => (
+                        <button
+                          key={cert.certificateId}
+                          onClick={() => setSelectedCertificateForView(cert)}
+                          className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between transition border ${
+                            cert.certificateType === 'winner'
+                              ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                              : 'bg-teal-50 hover:bg-teal-100 text-teal-900 border-teal-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 truncate mr-2">
+                            {cert.certificateType === 'winner' ? (
+                              <Trophy className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            ) : (
+                              <Award className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                            )}
+                            <span className="truncate">
+                              {cert.certificateType === 'winner' ? `Winner (${cert.positionText})` : 'Participant'} Certificate
+                            </span>
+                          </div>
+                          <span className="text-[10px] bg-white px-2 py-0.5 rounded-md font-bold shadow-2xs shrink-0">
+                            View 🎓
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
-
-                {/* UPI Details - Only shown for registered students */}
-                {isRegistered(event) && event.upiId && (
-                  <div className="mb-6 bg-blue-50/50 p-3 rounded-xl border border-blue-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="flex items-center gap-2 text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">
-                      <CreditCard className="w-3 h-3" /> Payment Details
-                    </div>
-                    <p className="text-sm font-bold text-blue-700 select-all">UPI ID: {event.upiId}</p>
-                    <p className="text-[10px] text-blue-400 mt-1 italic">Please complete payment to confirm your slot.</p>
-                  </div>
-                )}
-
-                {/* Team Information - For group events */}
-                {event.isGroupEvent && isRegistered(event) && (() => {
-                  const teamReg = getTeamRegistration(event);
-                  if (!teamReg) return null;
-                  
-                  let leaderName = 'Team Leader';
-                  if (teamReg.teamLeader) {
-                    if (typeof teamReg.teamLeader === 'object') {
-                      leaderName = teamReg.teamLeader.name;
-                    } else if (teamReg.teamLeader.name) {
-                      leaderName = teamReg.teamLeader.name;
-                    }
-                  }
-                  
-                  const isTeamLeader = (typeof teamReg.teamLeader === 'object' && teamReg.teamLeader._id === user._id) || 
-                                       (typeof teamReg.teamLeader === 'string' && teamReg.teamLeader === user._id);
-                  
-                  return (
-                    <div className="mb-6 bg-purple-50/50 p-4 rounded-xl border border-purple-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div className="flex items-center gap-2 text-[10px] font-black text-purple-400 uppercase tracking-widest mb-2">
-                        <Users className="w-3 h-3" /> Team Details
-                      </div>
-                      <p className="text-sm font-bold text-purple-700 mb-2">Team: {teamReg.teamName}</p>
-                      <p className="text-xs text-purple-500 mb-3">
-                        Registered by: {isTeamLeader ? 'You (Team Leader)' : leaderName}
-                      </p>
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Team Members:</p>
-                        {teamReg.teamMembers?.map((member, idx) => (
-                          <div key={idx} className={`flex items-center gap-2 text-sm ${member.isUnregistered ? 'text-red-500' : 'text-gray-700'}`}>
-                            <User className="w-3 h-3" />
-                            <span className={member.isUnregistered ? 'line-through' : ''}>
-                              ({member.rollNo || 'No Roll'}) {member.name}
-                            </span>
-                            {member.isUnregistered && <span className="text-xs font-bold text-red-500">(unregistered)</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Organizer Contact Details */}
-                <div className="mb-6 pt-4 border-t border-gray-50">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Organizer Contact</p>
-                  <div className="flex flex-col gap-1">
-                    <p className="text-sm font-bold text-gray-700">{event.organizer?.name} <span className="text-[10px] text-blue-400">({event.organizer?.organizerDetails?.department || 'Dept'})</span></p>
-                    <p className="text-xs text-gray-500">{event.organizer?.organizerDetails?.contactEmail || event.organizer?.email}</p>
-                    <p className="text-xs text-gray-500">{event.organizer?.organizerDetails?.mobileNo || 'Contact N/A'}</p>
-                  </div>
-                </div>
-
-                {/* Unregister Button */}
-                {isRegistered(event) && !isExpired(event) && (
-                  <button
-                    onClick={() => handleUnenroll(event._id)}
-                    className="mb-3 w-full flex items-center justify-center gap-2 font-black py-3 rounded-xl transition-all duration-300 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-100"
-                  >
-                    Unregister
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    if (event.winners && event.winners.length > 0) {
-                      setSelectedEventForLeaderboard(event);
-                      setShowLeaderboardModal(true);
-                    } else {
-                      handleRegister(event._id);
-                    }
-                  }}
-                  disabled={(!event.winners || event.winners.length === 0) && (!isEligible(event) || isRegistered(event) || isExpired(event) || event.isPaused || (event.registrationLimit > 0 && event.registrations.length >= event.registrationLimit))}
-                  className={`mt-auto w-full flex items-center justify-center gap-2 font-black py-4 rounded-2xl transition-all duration-300 group/btn ${
-                    (event.winners && event.winners.length > 0)
-                      ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 shadow-lg shadow-purple-200 hover:scale-[1.02]'
-                      : (!isEligible(event) || isRegistered(event) || isExpired(event) || event.isPaused || (event.registrationLimit > 0 && event.registrations.length >= event.registrationLimit))
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed grayscale'
-                        : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
-                  }`}
-                >
-                  {event.winners && event.winners.length > 0
-                    ? <><Trophy className="w-5 h-5 animate-bounce" /> LeaderBoard</>
-                    : isRegistered(event) 
-                      ? 'Registered ✓' 
-                      : (isExpired(event)
-                          ? 'Registrations Closed'
-                          : (event.isPaused
-                              ? 'Registration Paused'
-                              : (event.registrationLimit > 0 && event.registrations.length >= event.registrationLimit
-                                  ? 'Registrations Full'
-                                  : (!isEligible(event)
-                                      ? 'Only for ' + event.department
-                                      : 'Register Now'))))}
-                  <ChevronRight className={`w-4 h-4 group-hover/btn:translate-x-1 transition ${event.winners && event.winners.length > 0 ? 'text-white/70' : ''}`} />
-                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100">
-          <div className="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Calendar className="w-10 h-10 text-gray-300" />
+        /* Empty State */
+        <div className="text-center py-20 bg-white rounded-3xl border border-slate-200 p-8 max-w-xl mx-auto shadow-xs">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-500 flex items-center justify-center mx-auto mb-4">
+            <Calendar className="w-8 h-8" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-1">No events found</h3>
-          <p className="text-gray-500">Try switching categories or check back later.</p>
+          <h3 className="text-xl font-bold text-slate-900 mb-1">No Events Found</h3>
+          <p className="text-slate-500 text-xs max-w-sm mx-auto leading-relaxed">
+            There are no events listed under this category right now. Check back soon or browse other levels.
+          </p>
         </div>
       )}
+    </>
+  )}
 
-      {/* Profile Completion Modal */}
+
+
+      {/* Profile Completion Gate Modal */}
       {showProfileModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div className="text-center mb-8">
-              <div className="bg-blue-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Users className="w-8 h-8 text-blue-600" />
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-6 sm:p-8 w-full max-w-md shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="text-center mb-6">
+              <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3">
+                <User className="w-7 h-7" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Complete Your Profile</h2>
-              <p className="text-gray-500 mt-2">We need a few more details before you can register for events.</p>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Complete Student Profile</h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                To participate in events and join classmate teams, please specify your branch, class division, and roll number.
+              </p>
             </div>
 
             {formError && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-xs font-bold border border-red-100">
+              <div className="bg-red-50 text-red-600 p-3 rounded-xl mb-4 text-xs font-bold border border-red-200">
                 {formError}
               </div>
             )}
 
-            <form className="space-y-4" onSubmit={async (e) => {
-              e.preventDefault();
-              setSubmitting(true);
-              setFormError('');
-              const formData = new FormData(e.target);
-              const details = Object.fromEntries(formData.entries());
-              console.log('Updating profile with details:', details);
-              try {
-                if (!user?.token) {
-                  throw new Error('Authentication token is missing. Please login again.');
-                }
-                const config = {
-                    headers: { Authorization: `Bearer ${user.token}` }
-                  };
-                  console.log('Request Config:', config);
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSubmitting(true);
+                setFormError('');
+                const formData = new FormData(e.target);
+                const details = Object.fromEntries(formData.entries());
+                try {
+                  const config = { headers: { Authorization: `Bearer ${user.token}` } };
                   const response = await axios.put(`${API_URL}/api/users/profile`, details, config);
-                  console.log('Update Success:', response.data);
-                updateUser(response.data);
-                // setShowProfileModal is now reactive to user state
-              } catch (err) {
-                console.error('Update Profile Error Details:', err);
-                setFormError(err.response?.data?.message || err.message || 'Failed to update profile. Please check your connection.');
-              } finally {
-                setSubmitting(false);
-              }
-            }}>
-              <div className="grid grid-cols-2 gap-4">
+                  updateUser(response.data);
+                  setShowProfileModal(false);
+                } catch (err) {
+                  setFormError(err.response?.data?.message || 'Failed to save student profile.');
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            >
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Branch (Dept)</label>
-                  <select 
-                    name="branch" 
-                    required 
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition"
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                    Branch (Dept)
+                  </label>
+                  <select
+                    required
+                    value={profileBranchSelect}
+                    onChange={(e) => setProfileBranchSelect(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select Dept</option>
                     <option value="CSE">CSE</option>
                     <option value="AIML">AIML</option>
+                    <option value="AIDS">AIDS</option>
+                    <option value="EC">EC</option>
                     <option value="MECH">MECH</option>
                     <option value="CIVIL">CIVIL</option>
                     <option value="E&TC">E&TC</option>
                     <option value="MBA">MBA</option>
-                    <option value="OTHER">OTHER</option>
+                    <option value="OTHER">OTHER (Enter Manually)</option>
                   </select>
+
+                  {profileBranchSelect === 'OTHER' && (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter Department Name"
+                      value={profileCustomBranch}
+                      onChange={(e) => setProfileCustomBranch(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-white border border-teal-500 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 uppercase"
+                    />
+                  )}
+                  {/* Hidden field that feeds the form submission */}
+                  <input
+                    type="hidden"
+                    name="branch"
+                    value={profileBranchSelect === 'OTHER' ? profileCustomBranch : profileBranchSelect}
+                  />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Year</label>
-                  <input name="year" required placeholder="e.g. 3rd" className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition" />
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                    Academic Year
+                  </label>
+                  <input
+                    name="year"
+                    required
+                    placeholder="e.g. 3rd"
+                    defaultValue={user?.studentDetails?.year || ''}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Class & Roll No</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <select 
-                    name="class" 
-                    required 
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition"
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                    Class Division
+                  </label>
+                  <select
+                    required
+                    value={profileClassSelect}
+                    onChange={(e) => setProfileClassSelect(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select Class</option>
                     <option value="FY A">FY A</option>
@@ -654,41 +1586,74 @@ const StudentDashboard = () => {
                     <option value="B.TECH B">B.TECH B</option>
                     <option value="MBA Ist">MBA Ist</option>
                     <option value="MBA 2nd">MBA 2nd</option>
+                    <option value="OTHER">OTHER (Enter Manually)</option>
                   </select>
-                  <input 
-                    name="rollNo" 
-                    required 
-                    placeholder="Roll No (e.g., CS3135)" 
-                    pattern="^[A-Z]{2}\d{4}$"
-                    title="Roll number must be 2 alphabets followed by 4 digits (e.g., CS3135)"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition"
+
+                  {profileClassSelect === 'OTHER' && (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter Class / Div"
+                      value={profileCustomClass}
+                      onChange={(e) => setProfileCustomClass(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-white border border-teal-500 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 uppercase"
+                    />
+                  )}
+                  {/* Hidden field that feeds the form submission */}
+                  <input
+                    type="hidden"
+                    name="class"
+                    value={profileClassSelect === 'OTHER' ? profileCustomClass : profileClassSelect}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                    Roll Number
+                  </label>
+                  <input
+                    name="rollNo"
+                    required
+                    placeholder="e.g. CS3135"
+                    pattern="^[A-Za-z0-9-]{2,15}$"
+                    title="2 to 15 alphanumeric characters (e.g., CS3135 or AIDS01)"
+                    defaultValue={user?.studentDetails?.rollNo || ''}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Mobile Number</label>
-                <input name="mobileNo" required placeholder="+91 XXXXX XXXXX" className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition" />
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                  Mobile Number
+                </label>
+                <input
+                  name="mobileNo"
+                  required
+                  placeholder="+91 98765 43210"
+                  defaultValue={user?.studentDetails?.mobileNo || ''}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-              <button 
-                type="submit" 
+
+              <button
+                type="submit"
                 disabled={submitting}
-                className={`w-full text-white font-bold py-4 rounded-2xl shadow-lg transition mt-4 ${
-                  submitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-                }`}
+                className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-[#00B5AD] text-white font-bold rounded-xl text-xs shadow-md shadow-blue-500/20 hover:scale-[1.01] transition disabled:opacity-50"
               >
-                {submitting ? 'Updating Profile...' : 'Save & Continue'}
+                {submitting ? 'Saving Profile...' : 'Save & Continue'}
               </button>
 
-              <div className="text-center mt-4">
-                <button 
+              <div className="text-center pt-2">
+                <button
                   type="button"
                   onClick={() => {
                     logout();
                     navigate('/login');
                   }}
-                  className="text-gray-400 hover:text-red-500 text-xs font-medium transition"
+                  className="text-xs text-slate-400 hover:text-red-500 transition"
                 >
-                  Not you? Logout and switch account
+                  Logout & switch account
                 </button>
               </div>
             </form>
@@ -698,81 +1663,100 @@ const StudentDashboard = () => {
 
       {/* Team Registration Modal */}
       {showTeamModal && selectedEventForTeam && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-300 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-8">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-6 sm:p-8 w-full max-w-2xl shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Register Your Team</h2>
-                <p className="text-sm text-gray-500 font-medium">{selectedEventForTeam.name}</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Team size: {selectedEventForTeam.minTeamSize} - {selectedEventForTeam.maxTeamSize} members
-                </p>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Register Team</h2>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">{selectedEventForTeam.name}</p>
+                <span className="inline-block mt-1 text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
+                  Required: {selectedEventForTeam.minTeamSize} to {selectedEventForTeam.maxTeamSize} Members
+                </span>
               </div>
-              <button 
-                onClick={() => setShowTeamModal(false)} 
-                className="text-gray-400 hover:text-gray-600 transition"
+              <button
+                onClick={() => setShowTeamModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition"
               >
-                <Plus className="w-6 h-6 rotate-45" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={(e) => { e.preventDefault(); handleTeamRegister(); }} className="space-y-6">
               {/* Team Name */}
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Team Name</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Team Name
+                </label>
                 <input
                   required
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition"
+                  placeholder="e.g. Code Warriors"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   value={teamFormData.teamName}
                   onChange={(e) => setTeamFormData({ ...teamFormData, teamName: e.target.value })}
-                  placeholder="Enter team name"
                 />
               </div>
 
-              {/* Team Members */}
+              {/* Members Slots */}
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Team Members</label>
-                <div className="space-y-4">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                  Team Members Selection
+                </label>
+                
+                <div className="space-y-3">
                   {teamFormData.teamMembers.map((member, index) => (
-                    <div key={index} className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                    <div key={index} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-gray-600">Member {index + 1}</span>
+                        <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                          {member?.role === 'leader' ? <Crown className="w-3.5 h-3.5 text-amber-500" /> : <User className="w-3.5 h-3.5 text-slate-400" />}
+                          Slot {index + 1} {index < selectedEventForTeam.minTeamSize && <span className="text-red-500">*</span>}
+                        </span>
+
                         {member && (
-                          <select
-                            className="px-3 py-1 bg-white border border-gray-200 rounded-lg text-xs font-medium"
-                            value={member.role}
-                            onChange={(e) => handleSetRole(index, e.target.value)}
-                          >
-                            <option value="leader">Team Leader</option>
-                            <option value="member">Member</option>
-                          </select>
-                        )}
-                      </div>
-                      
-                      <div className="relative" onClick={(e) => e.stopPropagation()}>
-                        {member ? (
-                          <div className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl">
-                            <div>
-                              <p className="font-medium text-gray-800">{member.name}</p>
-                              <p className="text-xs text-gray-500">
-                                ({member.rollNo || 'No Roll'} • {member.class || 'No Class'})
-                              </p>
-                            </div>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={member.role}
+                              onChange={(e) => handleSetRole(index, e.target.value)}
+                              className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none"
+                            >
+                              <option value="leader">Team Leader</option>
+                              <option value="member">Member</option>
+                            </select>
                             <button
                               type="button"
                               onClick={() => handleSelectMember(index, null)}
-                              className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition"
+                              className="p-1 rounded-lg text-red-500 hover:bg-red-50 transition"
+                              title="Clear slot"
                             >
-                              <Plus className="w-4 h-4 rotate-45" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Member Slot Picker */}
+                      <div className="relative" onClick={(e) => e.stopPropagation()}>
+                        {member ? (
+                          <div className="flex items-center justify-between px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl">
+                            <div>
+                              <p className="text-xs font-bold text-slate-900">{member.name}</p>
+                              <p className="text-[10px] text-slate-500">
+                                Roll: {member.rollNo || 'N/A'} • Class: {member.class || 'N/A'}
+                              </p>
+                            </div>
+                            {member.role === 'leader' && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded">
+                                Leader
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <>
                             <div className="relative">
-                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
                               <input
                                 type="text"
-                                placeholder="Search by name or roll no..."
+                                placeholder="Search classmate by name or roll number..."
                                 value={memberSearchQueries[index] || ''}
                                 onChange={(e) => {
                                   const newQueries = [...memberSearchQueries];
@@ -781,13 +1765,12 @@ const StudentDashboard = () => {
                                   setActiveDropdownIndex(index);
                                 }}
                                 onFocus={() => setActiveDropdownIndex(index)}
-                                className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition font-medium"
+                                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
                               />
                             </div>
-                            
+
                             {activeDropdownIndex === index && (
-                              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                                {/* Current user option */}
+                              <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                                 {!getSelectedStudentIds().includes(user._id) && (
                                   <button
                                     type="button"
@@ -800,17 +1783,17 @@ const StudentDashboard = () => {
                                       });
                                       setActiveDropdownIndex(null);
                                     }}
-                                    className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 transition"
+                                    className="w-full px-3.5 py-2 text-left hover:bg-slate-50 border-b border-slate-100 text-xs"
                                   >
-                                    <p className="font-medium text-gray-800">{user.name} (You)</p>
-                                    <p className="text-xs text-gray-500">
-                                      ({user.studentDetails?.rollNo || 'Your Roll'}) • {user.studentDetails?.class || 'No Class'}
-                                    </p>
+                                    <span className="font-bold text-slate-800">{user.name} (You)</span>
+                                    <span className="text-slate-400 block text-[10px]">
+                                      Roll: {user.studentDetails?.rollNo || 'N/A'}
+                                    </span>
                                   </button>
                                 )}
-                                {/* Classmates */}
-                                {getFilteredClassmates(memberSearchQueries[index])
-                                  .filter(classmate => !getSelectedStudentIds().includes(classmate._id))
+
+                                {getFilteredClassmates(memberSearchQueries[index] || '')
+                                  .filter(c => !getSelectedStudentIds().includes(c._id))
                                   .map(classmate => (
                                     <button
                                       key={classmate._id}
@@ -819,12 +1802,12 @@ const StudentDashboard = () => {
                                         handleSelectMember(index, classmate);
                                         setActiveDropdownIndex(null);
                                       }}
-                                      className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition"
+                                      className="w-full px-3.5 py-2 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0 text-xs"
                                     >
-                                      <p className="font-medium text-gray-800">{classmate.name}</p>
-                                      <p className="text-xs text-gray-500">
-                                        ({classmate.studentDetails?.rollNo || 'No Roll'}) • {classmate.studentDetails?.class || 'No Class'}
-                                      </p>
+                                      <span className="font-bold text-slate-800">{classmate.name}</span>
+                                      <span className="text-slate-400 block text-[10px]">
+                                        Roll: {classmate.studentDetails?.rollNo || 'N/A'} • Class: {classmate.studentDetails?.class || 'N/A'}
+                                      </span>
                                     </button>
                                   ))}
                               </div>
@@ -840,96 +1823,288 @@ const StudentDashboard = () => {
               <button
                 type="submit"
                 disabled={submitting}
-                className={`w-full py-4 rounded-2xl font-black text-lg shadow-lg transition-all mt-4 ${
-                  submitting 
-                    ? 'bg-gray-400 cursor-not-allowed' 
-                    : 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200'
-                }`}
+                className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 transition disabled:opacity-50 text-sm"
               >
-                {submitting ? 'Registering Team...' : 'Register Team'}
+                {submitting ? 'Registering Team...' : 'Confirm Team Registration'}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Leaderboard Modal */}
-      {showLeaderboardModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div className="flex justify-between items-center mb-8">
+      {/* Requirement 6: Fill Remaining Spot (Replace Member Modal) */}
+      {showReplaceModal && replaceTargetEvent && replaceTargetReg && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[115] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-6 sm:p-8 w-full max-w-lg shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5 pb-4 border-b border-slate-100">
               <div>
-                <h2 className="text-3xl font-black text-gray-900 tracking-tighter">Event Leaderboard</h2>
-                <p className="text-sm text-gray-500 font-medium">{selectedEventForLeaderboard?.name}</p>
+                <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  <Users className="w-5 h-5 text-purple-600" /> Fill Remaining Team Spot
+                </h2>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                  {replaceTargetEvent.name} • Team {replaceTargetReg.teamName}
+                </p>
               </div>
-              <button 
-                onClick={() => setShowLeaderboardModal(false)} 
-                className="text-gray-400 hover:text-gray-600 transition p-2 hover:bg-gray-100 rounded-full"
+              <button
+                onClick={() => {
+                  setShowReplaceModal(false);
+                  setReplaceTargetEvent(null);
+                  setReplaceTargetReg(null);
+                  setSelectedReplacementStudent(null);
+                }}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition"
               >
-                <Plus className="w-6 h-6 rotate-45" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-              {[...(selectedEventForLeaderboard?.winners || [])].sort((a,b) => a.position - b.position).map((winner) => (
-                <div key={winner.position} className="group relative flex items-center gap-5 p-5 bg-white border border-gray-100 rounded-[2rem] hover:border-purple-200 hover:shadow-xl hover:shadow-purple-50 transition-all duration-300">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm ${
-                    winner.position === 1 ? 'bg-gradient-to-br from-yellow-300 to-yellow-500 text-white shadow-yellow-100' :
-                    winner.position === 2 ? 'bg-gradient-to-br from-slate-200 to-slate-400 text-white shadow-slate-100' :
-                    winner.position === 3 ? 'bg-gradient-to-br from-orange-300 to-orange-500 text-white shadow-orange-100' :
-                    'bg-purple-100 text-purple-600'
-                  }`}>
-                    {winner.position === 1 ? '🥇' : winner.position === 2 ? '🥈' : winner.position === 3 ? '🥉' : winner.position}
+            {/* Explanation Note */}
+            <div className="mb-5 bg-purple-50 p-3.5 rounded-2xl border border-purple-200 text-xs text-purple-800 leading-relaxed">
+              <strong>Keep Accepted Members Intact:</strong> You only need to choose an eligible classmate to replace the declined spot. Existing accepted members stay on your team.
+            </div>
+
+            {/* Existing Accepted Members Preview */}
+            <div className="mb-5 space-y-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Current Confirmed / Accepted Members
+              </label>
+              {replaceTargetReg.teamMembers
+                ?.filter(m => m.status !== 'rejected' && m.status !== 'left' && !m.isUnregistered)
+                .map((m, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                    <span className="font-semibold text-slate-800">
+                      {m.name} {m.rollNo ? `(${m.rollNo})` : ''}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded uppercase">
+                      {m.status || 'Accepted'}
+                    </span>
                   </div>
-                  
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start mb-1">
-                      <h4 className="font-black text-xl text-gray-900 leading-tight group-hover:text-purple-600 transition">{winner.name}</h4>
-                      <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
-                        winner.position === 1 ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
-                        winner.position === 2 ? 'bg-slate-50 text-slate-500 border border-slate-100' :
-                        winner.position === 3 ? 'bg-orange-50 text-orange-600 border border-orange-100' :
-                        'bg-purple-50 text-purple-600 border border-purple-100'
-                      }`}>
-                        {winner.position === 1 ? 'Champion' : winner.position === 2 ? 'Runner Up' : winner.position === 3 ? '2nd Runner Up' : `Position ${winner.position}`}
-                      </span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 mt-2">
-                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-tight">
-                        <div className="w-5 h-5 rounded-md bg-gray-50 flex items-center justify-center">
-                          <User className="w-3 h-3 text-gray-400" />
+                ))}
+            </div>
+
+            {/* Spot to Fill */}
+            <div className="space-y-3 mb-6">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                Select Replacement Student for Open Spot
+              </label>
+
+              {/* Classmate Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
+                <input
+                  type="text"
+                  placeholder="Search by name, roll no, or branch..."
+                  value={replaceSearchQuery}
+                  onChange={(e) => setReplaceSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              {/* Replacement Candidate List */}
+              <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white custom-scrollbar">
+                {replaceClassmates
+                  .filter(c => {
+                    // Exclude already active team members (allow replaced/left students if applicable, but exclude current active ones)
+                    const alreadyInTeam = replaceTargetReg.teamMembers?.some(
+                      tm => tm.status !== 'rejected' && tm.status !== 'left' && !tm.isUnregistered && (tm.student === c._id || tm.student?._id === c._id)
+                    );
+                    if (alreadyInTeam) return false;
+                    if (!replaceSearchQuery.trim()) return true;
+                    const q = replaceSearchQuery.toLowerCase();
+                    return (
+                      c.name.toLowerCase().includes(q) ||
+                      c.studentDetails?.rollNo?.toLowerCase().includes(q) ||
+                      c.studentDetails?.branch?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map(candidate => {
+                    const isSelected = selectedReplacementStudent?._id === candidate._id;
+                    return (
+                      <button
+                        key={candidate._id}
+                        type="button"
+                        onClick={() => setSelectedReplacementStudent(candidate)}
+                        className={`w-full p-2.5 text-left text-xs transition flex items-center justify-between ${
+                          isSelected ? 'bg-purple-50 text-purple-900 font-bold' : 'hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-semibold">{candidate.name}</p>
+                          <p className="text-[10px] text-slate-400">
+                            Roll: {candidate.studentDetails?.rollNo || 'N/A'} • Dept: {candidate.studentDetails?.branch || 'N/A'} • Class: {candidate.studentDetails?.class || 'N/A'}
+                          </p>
                         </div>
-                        Roll: <span className="text-gray-700">{winner.rollNo || 'N/A'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-tight">
-                        <div className="w-5 h-5 rounded-md bg-gray-50 flex items-center justify-center">
-                          <LayoutGrid className="w-3 h-3 text-gray-400" />
-                        </div>
-                        Class: <span className="text-gray-700">{winner.class || 'N/A'}</span>
-                      </div>
-                      {(selectedEventForLeaderboard?.level === 'institute' || selectedEventForLeaderboard?.level === 'club') && (
-                        <div className="col-span-2 flex items-center gap-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-tight">
-                          <div className="w-5 h-5 rounded-md bg-gray-50 flex items-center justify-center">
-                            <Building2 className="w-3 h-3 text-gray-400" />
-                          </div>
-                          Branch: <span className="text-gray-700">{winner.branch || 'N/A'}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                        {isSelected && <Check className="w-4 h-4 text-purple-600 shrink-0" />}
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {selectedReplacementStudent && (
+                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
+                  <span>Selected: <strong>{selectedReplacementStudent.name}</strong></span>
+                  <span className="text-[10px] font-bold bg-emerald-200/80 px-2 py-0.5 rounded">Ready to invite</span>
                 </div>
-              ))}
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReplaceModal(false);
+                  setReplaceTargetEvent(null);
+                  setReplaceTargetReg(null);
+                  setSelectedReplacementStudent(null);
+                }}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!selectedReplacementStudent || replacingMember}
+                onClick={handleConfirmReplaceMember}
+                className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold rounded-xl text-xs transition disabled:opacity-50 shadow-md shadow-purple-500/20"
+              >
+                {replacingMember ? 'Sending Invite...' : 'Send Invitation & Update Team'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard Podium Modal */}
+      {showLeaderboardModal && selectedEventForLeaderboard && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-6 sm:p-8 w-full max-w-lg shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  <Trophy className="w-6 h-6 text-amber-500" /> Event Leaderboard
+                </h2>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">{selectedEventForLeaderboard.name}</p>
+              </div>
+              <button
+                onClick={() => setShowLeaderboardModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Podium / Winners List */}
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+              {[...(selectedEventForLeaderboard.winners || [])]
+                .sort((a, b) => a.position - b.position)
+                .map((winner) => {
+                  const isGold = winner.position === 1;
+                  const isSilver = winner.position === 2;
+                  const isBronze = winner.position === 3;
+
+                  return (
+                    <div
+                      key={winner.position}
+                      className={`p-4 rounded-2xl border flex items-center gap-4 transition ${
+                        isGold 
+                          ? 'bg-amber-500/10 border-amber-300' 
+                          : isSilver 
+                            ? 'bg-slate-100 border-slate-300' 
+                            : isBronze 
+                              ? 'bg-orange-500/10 border-orange-300' 
+                              : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      {/* Position Medal */}
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0 shadow-xs ${
+                        isGold
+                          ? 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white'
+                          : isSilver
+                            ? 'bg-gradient-to-br from-slate-300 to-slate-400 text-white'
+                            : isBronze
+                              ? 'bg-gradient-to-br from-orange-400 to-amber-600 text-white'
+                              : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {isGold ? '🥇' : isSilver ? '🥈' : isBronze ? '🥉' : `#${winner.position}`}
+                      </div>
+
+                      {/* Winner details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-black text-slate-900 text-sm truncate">
+                            {winner.isTeamWinner || winner.teamName || selectedEventForLeaderboard.isGroupEvent 
+                              ? `👥 ${winner.teamName || winner.name}` 
+                              : `👤 ${winner.name}`}
+                          </h4>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shrink-0 ${
+                            isGold ? 'bg-amber-100 text-amber-800' :
+                            isSilver ? 'bg-slate-200 text-slate-800' :
+                            isBronze ? 'bg-orange-100 text-orange-800' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {isGold ? 'Champion' : isSilver ? 'Runner Up' : isBronze ? '3rd Place' : `Rank ${winner.position}`}
+                          </span>
+                        </div>
+
+                        {winner.isTeamWinner || winner.teamName || selectedEventForLeaderboard.isGroupEvent ? (
+                          <div className="mt-1 space-y-1">
+                            {winner.teamLeaderName && (
+                              <p className="text-[11px] text-slate-600">
+                                Team Leader: <strong className="text-slate-800">{winner.teamLeaderName}</strong>
+                              </p>
+                            )}
+                            {winner.teamMembers && winner.teamMembers.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {winner.teamMembers.map((m, mIdx) => (
+                                  <span key={mIdx} className="px-2 py-0.5 bg-white/90 border border-slate-200/80 rounded text-[10px] text-slate-700 font-medium">
+                                    {m.name || m} {m.rollNo ? `(${m.rollNo})` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
+                            {winner.rollNo && <span>Roll: <strong className="text-slate-700">{winner.rollNo}</strong></span>}
+                            {winner.class && <span>Class: <strong className="text-slate-700">{winner.class}</strong></span>}
+                            {winner.branch && <span>Dept: <strong className="text-slate-700">{winner.branch}</strong></span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
 
             <button
               onClick={() => setShowLeaderboardModal(false)}
-              className="w-full mt-8 py-4 bg-gray-900 text-white rounded-2xl font-black text-lg hover:bg-black transition-all shadow-lg shadow-gray-200"
+              className="w-full mt-6 py-3.5 bg-slate-900 hover:bg-black text-white font-bold rounded-2xl text-xs transition"
             >
-              Close Leaderboard
+              Close
             </button>
           </div>
         </div>
+      )}
+
+      {/* Certificate Viewer Modal */}
+      {selectedCertificateForView && (
+        <CertificateModal
+          certificate={selectedCertificateForView}
+          onClose={() => setSelectedCertificateForView(null)}
+        />
+      )}
+
+      {/* Certificate Notification Popup */}
+      {notificationCertificate && (
+        <CertificateNotificationPopup
+          latestCertificate={notificationCertificate}
+          onViewCertificate={(cert) => setSelectedCertificateForView(cert)}
+          onViewAllCertificates={() => setActiveTab('certificates')}
+          onDismiss={handleDismissNotification}
+        />
       )}
     </div>
   );

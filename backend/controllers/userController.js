@@ -38,42 +38,47 @@ const forgotPassword = async (req, res) => {
       <p>This OTP is valid for 10 minutes. If you did not request this, please ignore this email.</p>
     `;
 
-    try {
-      const hasValidSmtp = process.env.SMTP_HOST && 
-                            process.env.SMTP_USER && 
-                            process.env.SMTP_PASS && 
-                            !process.env.SMTP_USER.includes('your_') && 
-                            !process.env.SMTP_PASS.includes('your_');
-                            
-      if (hasValidSmtp) {
+    const smtpSettings = [
+      process.env.SMTP_HOST,
+      process.env.SMTP_USER,
+      process.env.SMTP_PASS,
+      process.env.FROM_EMAIL,
+    ];
+    const hasValidSmtp = smtpSettings.every(
+      (value) => value && value.trim() && !value.includes('your_')
+    );
+
+    if (hasValidSmtp) {
+      try {
         await sendEmail({
           email: user.email,
           subject: 'Password Reset OTP',
-          message: message,
+          message,
         });
-
-        res.status(200).json({ message: 'OTP sent to email' });
-      } else {
-        // Fallback for development
-        console.log('--- PASSWORD RESET OTP ---');
-        console.log(`OTP: ${otp}`);
-        console.log('---------------------------');
-        res.status(200).json({ 
-          message: 'OTP sent (Development Mode: Check server console)',
-          developmentOTP: otp 
+      } catch (err) {
+        console.error('Failed to send password reset email:', err);
+        return res.status(502).json({
+          message: 'Unable to send password reset email. Please try again later.',
         });
       }
-    } catch (err) {
-      console.error(err);
-      // If email fails, still show the OTP in console for development
+
+      return res.status(200).json({ message: 'OTP sent to email' });
+    }
+
+    if (process.env.NODE_ENV === 'development') {
       console.log('--- PASSWORD RESET OTP ---');
       console.log(`OTP: ${otp}`);
       console.log('---------------------------');
-      res.status(200).json({ 
+      return res.status(200).json({
         message: 'OTP sent (Development Mode: Check server console)',
-        developmentOTP: otp 
+        developmentOTP: otp,
       });
     }
+
+    console.error('SMTP is not configured; password reset email cannot be sent.');
+    return res.status(503).json({
+      message: 'Password reset email service is not configured.',
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server Error' });
@@ -187,7 +192,7 @@ const registerUser = async (req, res) => {
     password,
     collegeName,
     role: role || 'student',
-    isApproved: role === 'organizer' ? false : true, // Organizers need approval
+    isApproved: role === 'admin' ? true : false, // Organizers AND Students both require admin approval!
     organizerDetails: role === 'organizer' ? {
       department,
       mobileNo,
@@ -196,15 +201,17 @@ const registerUser = async (req, res) => {
   });
 
   if (user) {
-    // If user is organizer, don't return token yet, wait for approval
-    if (user.role === 'organizer') {
+    // If user is not admin (student or organizer), don't return token yet, wait for approval
+    if (user.role !== 'admin') {
+      const roleLabel = user.role === 'organizer' ? 'Organizer' : 'Student';
       return res.status(201).json({
-        message: 'Organizer account created. Please wait for Admin approval before logging in.',
+        message: `${roleLabel} account created successfully. Please wait for Admin approval before logging in.`,
         role: user.role,
         _id: user.id,
         name: user.name,
         email: user.email,
         collegeName: user.collegeName,
+        isApproved: false,
         organizerDetails: user.organizerDetails,
       });
     }
@@ -237,8 +244,17 @@ const loginUser = async (req, res) => {
   }
 
   if (user && (await user.matchPassword(password))) {
-    if (user.role === 'organizer' && !user.isApproved) {
-      return res.status(401).json({ message: 'Organizer account pending approval' });
+    if (user.isBlocked) {
+      return res.status(403).json({
+        message: 'You have been banned by the college admin. Please contact your college administration or department head for assistance.',
+        isBlocked: true,
+        blockReason: user.blockReason || 'Banned by college administration',
+      });
+    }
+
+    if (user.role !== 'admin' && !user.isApproved) {
+      const roleLabel = user.role === 'organizer' ? 'Organizer' : 'Student';
+      return res.status(401).json({ message: `${roleLabel} account pending approval by Admin` });
     }
 
     res.json({

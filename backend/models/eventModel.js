@@ -17,16 +17,23 @@ const eventSchema = mongoose.Schema(
     },
     level: {
       type: String,
-      enum: ['department', 'institute', 'club'],
+      enum: ['department', 'institute', 'club', 'intercollege'],
       required: true,
+    },
+    isInterCollege: {
+      type: Boolean,
+      default: false,
     },
     clubName: {
       type: String,
     },
     department: {
       type: String,
-      enum: ['CSE', 'AIML', 'MECH', 'CIVIL', 'E&TC', 'MBA', 'OTHER', 'ALL'],
       default: 'ALL',
+    },
+    departments: {
+      type: [String],
+      default: ['ALL'],
     },
     category: {
       type: String, // e.g., 'Technical', 'Cultural', 'Sports'
@@ -100,17 +107,31 @@ const eventSchema = mongoose.Schema(
               ref: 'User',
             },
             name: String,
+            college: String,
             rollNo: String,
             class: String,
             branch: String,
             email: String,
             mobileNo: String,
+            status: {
+              type: String,
+              enum: ['pending', 'accepted', 'rejected', 'left'],
+              default: 'pending',
+            },
+            respondedAt: {
+              type: Date,
+            },
             isUnregistered: {
               type: Boolean,
               default: false,
             },
           }
         ],
+        status: {
+          type: String,
+          enum: ['pending', 'confirmed', 'rejected'],
+          default: 'confirmed',
+        },
         registeredAt: {
           type: Date,
           default: Date.now,
@@ -147,6 +168,91 @@ const eventSchema = mongoose.Schema(
         },
       },
     ],
+    certificates: {
+      participantCertificatesAllocated: {
+        type: Boolean,
+        default: false,
+      },
+      winnerCertificatesAllocated: {
+        type: Boolean,
+        default: false,
+      },
+      allocatedAt: {
+        type: Date,
+      },
+      eventDateText: {
+        type: String,
+      },
+      issueDateText: {
+        type: String,
+      },
+      collegeName: {
+        type: String,
+        default: 'Deogiri Institute of Engineering and Management Studies',
+      },
+      trustName: {
+        type: String,
+        default: 'Marathwada Shikshan Prasarak Mandal’s',
+      },
+      autonomousText: {
+        type: String,
+        default: '(An Autonomous Institute)',
+      },
+      collegeAddress: {
+        type: String,
+        default: 'Deogiri Campus, Near Hotel VITS, Railway Station Road, Chhatrapati Sambhajinagar, Maharashtra, India - 431005',
+      },
+      leftSignatoryTitle: {
+        type: String,
+        default: 'Director, DIEMS, Chh. Sambhajinagar',
+      },
+      leftSignatoryName: {
+        type: String,
+        default: 'Dr. Ulhas Shiurkar',
+      },
+      leftSignatoryImage: {
+        type: String,
+      },
+      rightSignatoryTitle: {
+        type: String,
+        default: 'Head of Events Association',
+      },
+      rightSignatoryName: {
+        type: String,
+        default: '',
+      },
+      rightSignatoryImage: {
+        type: String,
+      },
+      participantDriveUrl: {
+        type: String,
+      },
+      winnerDriveUrl: {
+        type: String,
+      },
+      theme: {
+        type: String,
+        default: 'theme-imperial-navy',
+      },
+      customCertificates: [
+        {
+          studentId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+          },
+          studentRollNo: String,
+          studentName: String,
+          teamName: String,
+          type: {
+            type: String,
+            enum: ['participant', 'winner'],
+            default: 'participant',
+          },
+          certificateUrl: String,
+          position: Number,
+        }
+      ],
+    },
   },
   {
     timestamps: true,

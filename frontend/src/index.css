@@ -2,11 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  background-color: #f8fafc;
+@layer base {
+  :root {
+    --brand-navy: #003B5C;
+    --brand-teal: #00B5AD;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight;
+  }
 }
 
-body {
-  margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.glass-panel-dark {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.hero-mesh {
+  background-color: #030712;
+  background-image: 
+    radial-gradient(at 10% 20%, rgba(0, 59, 92, 0.45) 0px, transparent 50%),
+    radial-gradient(at 90% 10%, rgba(0, 181, 173, 0.35) 0px, transparent 50%),
+    radial-gradient(at 50% 90%, rgba(37, 99, 235, 0.3) 0px, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(139, 92, 246, 0.25) 0px, transparent 50%);
+}
+
+.auth-mesh {
+  background-color: #0b1329;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(0, 59, 92, 0.6) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(0, 181, 173, 0.4) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(59, 130, 246, 0.3) 0px, transparent 55%);
 }

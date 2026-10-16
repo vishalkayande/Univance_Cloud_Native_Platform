@@ -9,7 +9,7 @@ const seedAdmin = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
 
-    const adminEmail = 'admin@collegesphere.com';
+    const adminEmail = 'univance@dietms.org';
     const adminExists = await User.findOne({ email: adminEmail });
 
     if (adminExists) {
@@ -20,15 +20,15 @@ const seedAdmin = async () => {
     const admin = await User.create({
       name: 'System Admin',
       email: adminEmail,
-      password: 'admin123', // This will be hashed by the pre-save hook
+      password: 'Admin@123', // Meets password requirements
       role: 'admin',
       collegeName: 'System', // Required by schema for non-admins, but let's provide it anyway
     });
 
     if (admin) {
       console.log('Default Admin Created:');
-      console.log('Email: admin@collegesphere.com');
-      console.log('Password: admin123');
+      console.log('Email: univance@dietms.org');
+      console.log('Password: Admin@123');
     }
 
     process.exit();

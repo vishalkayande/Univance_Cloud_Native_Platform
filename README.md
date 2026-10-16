@@ -1,6 +1,6 @@
-# 🎓 CollegeSphere
+# 🎓 UniVance
 
-CollegeSphere is a comprehensive academic event management platform designed to streamline event coordination within educational institutions. It provides dedicated interfaces for Students, Organizers, and Administrators to manage everything from event discovery to registration and certificates.
+UniVance is a comprehensive academic event management platform designed to streamline event coordination within educational institutions. It provides dedicated interfaces for Students, Organizers, and Administrators to manage everything from event discovery to registration and certificates.
 
 ## 🚀 Key Features
 
@@ -62,7 +62,7 @@ CollegeSphere is a comprehensive academic event management platform designed to 
 #### 1. Clone the Repository
 ```bash
 git clone <your-github-repo-url>
-cd CollegeSphere
+cd UniVance
 ```
 
 #### 2. Backend Setup
@@ -97,7 +97,7 @@ cd CollegeSphere
 Create a `.env` file in the root directory:
 ```env
 PORT=5002
-MONGODB_URI=mongodb://mongodb:27017/collegesphere
+MONGODB_URI=mongodb://mongodb:27017/univance
 JWT_SECRET=your_secure_random_jwt_secret_key
 NODE_ENV=development
 FRONTEND_URL=http://localhost
@@ -105,7 +105,7 @@ SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_USER=your_brevo_smtp_user
 SMTP_PASS=your_brevo_smtp_password
-FROM_NAME=CollegeSphere
+FROM_NAME=UniVance
 FROM_EMAIL=your_verified_sender_email@example.com
 ```
 
@@ -113,7 +113,7 @@ FROM_EMAIL=your_verified_sender_email@example.com
 Create a `.env` file in the `backend` directory:
 ```env
 PORT=5003
-MONGODB_URI=mongodb://localhost:27017/collegesphere
+MONGODB_URI=mongodb://localhost:27017/univance
 JWT_SECRET=your_secure_random_jwt_secret_key
 NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
@@ -121,7 +121,7 @@ SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_USER=your_brevo_smtp_user
 SMTP_PASS=your_brevo_smtp_password
-FROM_NAME=CollegeSphere
+FROM_NAME=UniVance
 FROM_EMAIL=your_verified_sender_email@example.com
 ```
 
