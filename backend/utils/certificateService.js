@@ -15,7 +15,8 @@ const syncEventCertificates = async (eventOrId) => {
         .populate('organizer', 'name email organizerDetails')
         .populate('registrations.student', 'name studentDetails email')
         .populate('registrations.teamLeader', 'name studentDetails email')
-        .populate('registrations.teamMembers.student', 'name studentDetails email');
+        .populate('registrations.teamMembers.student', 'name studentDetails email')
+        .populate('volunteers.student', 'name studentDetails email collegeName');
     }
 
     if (!event) return [];
@@ -23,8 +24,9 @@ const syncEventCertificates = async (eventOrId) => {
     const certsConfig = event.certificates || {};
     const allocatePart = Boolean(certsConfig.participantCertificatesAllocated);
     const allocateWin = Boolean(certsConfig.winnerCertificatesAllocated);
+    const hasVolunteerCerts = (event.volunteers || []).some(v => v.certificateAllocated);
 
-    if (!allocatePart && !allocateWin) {
+    if (!allocatePart && !allocateWin && !hasVolunteerCerts) {
       return [];
     }
 
@@ -368,6 +370,77 @@ const syncEventCertificates = async (eventOrId) => {
         savedCertificates.push(saved);
       }
     }
+
+    // 3. Process Selective Volunteer Certificates
+    const allocatedVolunteers = (event.volunteers || []).filter(v => v.certificateAllocated);
+    if (allocatedVolunteers.length > 0) {
+      for (const vol of allocatedVolunteers) {
+        const userDoc = vol.student ? (vol.student.name ? vol.student : await resolveUser({ id: vol.student })) : await resolveUser({ name: vol.name, rollNo: vol.rollNo });
+        const sId = userDoc ? userDoc._id.toString() : (vol.student ? (vol.student._id ? vol.student._id.toString() : vol.student.toString()) : (vol.name || 'volunteer').replace(/\s+/g, '_'));
+        const certId = `${eventId}_vol_${sId}`;
+
+        const customVol = customList.find(c =>
+          c.type === 'volunteer' && (
+            (userDoc && c.studentId && c.studentId.toString() === userDoc._id.toString()) ||
+            (vol.name && c.studentName && c.studentName.trim().toLowerCase() === vol.name.trim().toLowerCase()) ||
+            (vol.rollNo && c.studentRollNo && c.studentRollNo.trim().toLowerCase() === vol.rollNo.trim().toLowerCase())
+          )
+        );
+
+        const certData = {
+          certificateId: certId,
+          student: userDoc ? userDoc._id : undefined,
+          studentName: vol.name || (userDoc ? userDoc.name : 'Volunteer'),
+          studentRollNo: vol.rollNo || (userDoc?.studentDetails?.rollNo || ''),
+          studentClass: vol.class || (userDoc?.studentDetails?.class || ''),
+          studentBranch: vol.department || (userDoc?.studentDetails?.branch || ''),
+          studentEmail: vol.email || (userDoc?.email || ''),
+          eventId: eventId,
+          eventName: eventName,
+          eventCategory: eventCategory,
+          eventLevel: eventLevel,
+          eventDate: eventDate,
+          eventDateText: eventDateText,
+          issueDateText: issueDateText,
+          certificateType: 'volunteer',
+          typeLabel: 'Certificate of Volunteering',
+          theme: theme,
+          isGroupEvent: false,
+          collegeName: collegeName,
+          trustName: trustName,
+          autonomousText: autonomousText,
+          collegeAddress: collegeAddress,
+          leftSignatoryTitle: leftSignatoryTitle,
+          leftSignatoryName: leftSignatoryName,
+          leftSignatoryImage: leftSignatoryImage,
+          rightSignatoryTitle: rightSignatoryTitle,
+          rightSignatoryName: rightSignatoryName,
+          rightSignatoryImage: rightSignatoryImage,
+          customCertificateUrl: customVol?.certificateUrl || null,
+          allocatedAt: vol.certificateAllocatedAt || allocatedAt,
+          isEventDeleted: false,
+        };
+
+        const saved = await Certificate.findOneAndUpdate(
+          { certificateId: certId },
+          { $set: certData },
+          { upsert: true, new: true }
+        );
+        savedCertificates.push(saved);
+      }
+    }
+
+    // Clean up revoked volunteer certificates for this event
+    const allocatedVolunteerStudentIds = (event.volunteers || [])
+      .filter(v => v.certificateAllocated)
+      .map(v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : null))
+      .filter(Boolean);
+
+    await Certificate.deleteMany({
+      eventId: eventId,
+      certificateType: 'volunteer',
+      student: { $nin: allocatedVolunteerStudentIds }
+    });
 
     return savedCertificates;
   } catch (err) {

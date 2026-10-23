@@ -136,7 +136,7 @@ export default function CertificateManagementModal({
       issueDateText: formData.issueDateText,
       certificateType: type,
       position: type === 'winner' ? 1 : undefined,
-      positionText: type === 'winner' ? '1st Place (Champion)' : 'Participant',
+      positionText: type === 'winner' ? '1st Place (Champion)' : type === 'volunteer' ? 'Official Volunteer' : 'Participant',
       studentName: 'Sample Student Name',
       rollNo: '24CSE042',
       class: 'TY CSE',

@@ -36,6 +36,8 @@ import {
   Download,
   Globe,
   Layers,
+  HeartHandshake,
+  MessageSquare,
 } from 'lucide-react';
 import { API_URL } from '../apiConfig';
 import CertificateModal from '../components/CertificateModal';
@@ -56,7 +58,21 @@ const StudentDashboard = () => {
   const [selectedCertificateForView, setSelectedCertificateForView] = useState(null);
   const [notificationCertificate, setNotificationCertificate] = useState(null);
   const [certificateSearchQuery, setCertificateSearchQuery] = useState('');
-  const [certificateTypeFilter, setCertificateTypeFilter] = useState('ALL'); // 'ALL' | 'winner' | 'participant'
+  const [certificateTypeFilter, setCertificateTypeFilter] = useState('ALL'); // 'ALL' | 'winner' | 'participant' | 'volunteer'
+
+  // Volunteer feature states
+  const [showVolunteerConfirmModal, setShowVolunteerConfirmModal] = useState(false);
+  const [selectedEventForVolunteer, setSelectedEventForVolunteer] = useState(null);
+  const [volunteeringSubmitting, setVolunteeringSubmitting] = useState(false);
+  
+  // Volunteer message modal state
+  const [showVolunteerMessageModal, setShowVolunteerMessageModal] = useState(false);
+  const [activeVolunteerMessageEvent, setActiveVolunteerMessageEvent] = useState(null);
+
+  // Volunteer opt-out modal state
+  const [showVolunteerOptOutModal, setShowVolunteerOptOutModal] = useState(false);
+  const [selectedEventForOptOut, setSelectedEventForOptOut] = useState(null);
+  const [optOutSubmitting, setOptOutSubmitting] = useState(false);
 
   // Modals state
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -284,6 +300,11 @@ const StudentDashboard = () => {
     const event = events.find(e => e._id === eventId);
     if (!event) return;
 
+    if (isVolunteer(event)) {
+      alert('You are registered as a volunteer for this event and cannot participate as a contestant/attendee. If you wish to participate instead, please opt out of volunteering first.');
+      return;
+    }
+
     if (event.isGroupEvent) {
       // Group Event Registration
       try {
@@ -497,6 +518,89 @@ const StudentDashboard = () => {
       }
       return false;
     });
+  };
+
+  const isVolunteer = (event) => {
+    return (event.volunteers || []).some(
+      v => (v.student?._id ? v.student._id === user._id : v.student === user._id)
+    );
+  };
+
+  const getVolunteerRecord = (event) => {
+    return (event.volunteers || []).find(
+      v => (v.student?._id ? v.student._id === user._id : v.student === user._id)
+    );
+  };
+
+  const canOptOutVolunteer = (event) => {
+    try {
+      const deadline = new Date(`${event.date.split('T')[0]}T${event.time}`);
+      const hoursRemaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
+      return hoursRemaining >= 24;
+    } catch {
+      return false;
+    }
+  };
+
+  const getHoursUntilDeadline = (event) => {
+    try {
+      const deadline = new Date(`${event.date.split('T')[0]}T${event.time}`);
+      const hoursRemaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
+      return Math.max(0, Math.floor(hoursRemaining));
+    } catch {
+      return 0;
+    }
+  };
+
+  const handleConfirmVolunteer = async () => {
+    if (!selectedEventForVolunteer) return;
+    try {
+      setVolunteeringSubmitting(true);
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      const res = await axios.post(
+        `${API_URL}/api/events/${selectedEventForVolunteer._id}/volunteer`,
+        {},
+        config
+      );
+      await fetchEvents();
+      setShowVolunteerConfirmModal(false);
+
+      // Show the volunteer instructions/message modal immediately
+      const volunteerMsg = res.data.volunteerMessage || selectedEventForVolunteer.volunteerMessage || '';
+      setActiveVolunteerMessageEvent({
+        ...selectedEventForVolunteer,
+        volunteerMessage: volunteerMsg,
+      });
+      setShowVolunteerMessageModal(true);
+      setSelectedEventForVolunteer(null);
+    } catch (err) {
+      console.error('Volunteering error:', err);
+      alert(err.response?.data?.message || 'Failed to register as volunteer');
+    } finally {
+      setVolunteeringSubmitting(false);
+    }
+  };
+
+  const handleConfirmOptOut = async () => {
+    if (!selectedEventForOptOut) return;
+    try {
+      setOptOutSubmitting(true);
+      const config = { headers: { Authorization: `Bearer ${user.token}` } };
+      await axios.post(
+        `${API_URL}/api/events/${selectedEventForOptOut._id}/volunteer-optout`,
+        {},
+        config
+      );
+      alert('You have successfully opted out of volunteering. You are now free to participate or volunteer again.');
+      await fetchEvents();
+      setShowVolunteerOptOutModal(false);
+      setSelectedEventForOptOut(null);
+    } catch (err) {
+      console.error('Opt-out error:', err);
+      alert(err.response?.data?.message || 'Failed to opt out from volunteering');
+    } finally {
+      setOptOutSubmitting(false);
+    }
   };
 
   const isExpired = (event) => {
@@ -847,6 +951,17 @@ const StudentDashboard = () => {
                 <Award className="w-3.5 h-3.5" />
                 <span>Participant ({myCertificates.filter(c => c.certificateType === 'participant').length})</span>
               </button>
+              <button
+                onClick={() => setCertificateTypeFilter('volunteer')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  certificateTypeFilter === 'volunteer'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                }`}
+              >
+                <HeartHandshake className="w-3.5 h-3.5" />
+                <span>Volunteer ({myCertificates.filter(c => c.certificateType === 'volunteer').length})</span>
+              </button>
             </div>
 
             <div className="relative w-full md:w-80">
@@ -880,18 +995,25 @@ const StudentDashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredCertificates.map((cert) => {
                 const isWinner = cert.certificateType === 'winner';
+                const isVolunteer = cert.certificateType === 'volunteer';
                 return (
                   <div
                     key={cert.certificateId}
                     className={`bg-white rounded-3xl overflow-hidden shadow-xs hover:shadow-xl transition-all duration-300 border-2 flex flex-col justify-between ${
-                      isWinner ? 'border-amber-300 hover:border-amber-400' : 'border-teal-200 hover:border-teal-300'
+                      isWinner 
+                        ? 'border-amber-300 hover:border-amber-400' 
+                        : isVolunteer
+                          ? 'border-indigo-300 hover:border-indigo-400'
+                          : 'border-teal-200 hover:border-teal-300'
                     }`}
                   >
                     {/* Header Banner */}
                     <div className={`p-5 text-white ${
                       isWinner
                         ? 'bg-gradient-to-br from-amber-600 via-amber-700 to-orange-800'
-                        : 'bg-gradient-to-br from-[#003B5C] via-slate-900 to-[#004e6b]'
+                        : isVolunteer
+                          ? 'bg-gradient-to-br from-indigo-800 via-purple-900 to-slate-900'
+                          : 'bg-gradient-to-br from-[#003B5C] via-slate-900 to-[#004e6b]'
                     }`}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -905,8 +1027,14 @@ const StudentDashboard = () => {
                           )}
                         </div>
                         <div className="flex items-center gap-1 text-[11px] font-bold text-white/95">
-                          {isWinner ? <Trophy className="w-4 h-4 text-amber-200" /> : <Award className="w-4 h-4 text-teal-200" />}
-                          <span>{isWinner ? cert.positionText : 'Participant'}</span>
+                          {isWinner ? (
+                            <Trophy className="w-4 h-4 text-amber-200" />
+                          ) : isVolunteer ? (
+                            <HeartHandshake className="w-4 h-4 text-indigo-200" />
+                          ) : (
+                            <Award className="w-4 h-4 text-teal-200" />
+                          )}
+                          <span>{isWinner ? cert.positionText : isVolunteer ? 'Official Volunteer' : 'Participant'}</span>
                         </div>
                       </div>
 
@@ -1063,6 +1191,11 @@ const StudentDashboard = () => {
             const hasWinners = event.winners && event.winners.length > 0;
             const isFull = event.registrationLimit > 0 && event.registrations.length >= event.registrationLimit;
             const eventCerts = myCertificates.filter(c => String(c.eventId) === String(event._id));
+            const isStudentVolunteer = isVolunteer(event);
+            const volunteersRequired = event.volunteersRequired || 0;
+            const volunteersCount = event.volunteers?.length || 0;
+            const isVolunteerFull = volunteersRequired > 0 && volunteersCount >= volunteersRequired;
+            const canOptOut = canOptOutVolunteer(event);
 
             return (
               <div
@@ -1125,6 +1258,10 @@ const StudentDashboard = () => {
                     {hasWinners ? (
                       <span className="px-3 py-1 rounded-lg bg-amber-500 text-white font-bold flex items-center gap-1 shadow-xs">
                         <Trophy className="w-3.5 h-3.5" /> Results Out
+                      </span>
+                    ) : isStudentVolunteer ? (
+                      <span className="px-3 py-1 rounded-lg bg-indigo-600 text-white font-bold flex items-center gap-1 shadow-xs">
+                        <HeartHandshake className="w-3.5 h-3.5" /> Official Volunteer
                       </span>
                     ) : registered ? (
                       <span className="px-3 py-1 rounded-lg bg-emerald-500 text-white font-bold flex items-center gap-1 shadow-xs">
@@ -1207,6 +1344,18 @@ const StudentDashboard = () => {
                           : (event.department || 'All Departments')}
                       </span>
                     </div>
+
+                    {volunteersRequired > 0 && (
+                      <div className="flex items-center justify-between text-slate-700">
+                        <div className="flex items-center gap-2">
+                          <HeartHandshake className="w-4 h-4 shrink-0 text-indigo-600" />
+                          <span className="font-semibold">Volunteers:</span>
+                        </div>
+                        <span className={`font-bold ${isVolunteerFull ? 'text-amber-700' : 'text-indigo-900'}`}>
+                          {volunteersCount} / {volunteersRequired} {isVolunteerFull ? '(Full)' : 'spots'}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Registration Capacity Progress Bar */}
                     {event.registrationLimit > 0 && (
@@ -1370,52 +1519,166 @@ const StudentDashboard = () => {
                     </button>
                   )}
 
+                  {/* ========================================================================= */}
+                  {/* VOLUNTEER OPTION (Positioned upper side of registration button) */}
+                  {/* ========================================================================= */}
+                  {volunteersRequired > 0 && !hasWinners && (
+                    <div className="mb-2.5">
+                      {isStudentVolunteer ? (
+                        /* Active Volunteer Panel */
+                        <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-50 via-purple-50 to-indigo-50/60 border border-indigo-200/90 shadow-2xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-indigo-950 font-black text-xs">
+                              <HeartHandshake className="w-4 h-4 text-indigo-600 shrink-0" />
+                              <span>You are an Event Volunteer</span>
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-600 text-white shadow-2xs">
+                              Active
+                            </span>
+                          </div>
+
+                          {/* Button to view organizer's message */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveVolunteerMessageEvent(event);
+                              setShowVolunteerMessageModal(true);
+                            }}
+                            className="w-full py-2 px-3 rounded-xl bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Organizer&apos;s Volunteer Message</span>
+                          </button>
+
+                          {/* Opt-out button */}
+                          <div>
+                            {canOptOut ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedEventForOptOut(event);
+                                  setShowVolunteerOptOutModal(true);
+                                }}
+                                className="w-full py-1.5 rounded-xl text-[11px] font-bold text-red-600 hover:bg-red-50 border border-red-200/80 transition"
+                              >
+                                Opt-out from Volunteering
+                              </button>
+                            ) : (
+                              <div 
+                                className="w-full py-1.5 px-2 rounded-xl bg-slate-100 text-[10px] font-semibold text-slate-400 text-center border border-slate-200"
+                                title="Opting out is only permitted up to 24 hours before event registration deadline"
+                              >
+                                Opt-out locked (&lt; 24h to deadline)
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : registered ? (
+                        /* Already registered as participant */
+                        <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                            <HeartHandshake className="w-3.5 h-3.5 text-slate-400" /> Volunteer Option
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            Unavailable (Enrolled)
+                          </span>
+                        </div>
+                      ) : (
+                        /* Volunteer Button on upper side of registration button */
+                        <div>
+                          <button
+                            type="button"
+                            disabled={expired || isVolunteerFull || event.isPaused}
+                            onClick={() => {
+                              setSelectedEventForVolunteer(event);
+                              setShowVolunteerConfirmModal(true);
+                            }}
+                            className={`w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-between transition border ${
+                              expired || event.isPaused
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                : isVolunteerFull
+                                  ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                                  : 'bg-gradient-to-r from-indigo-50 via-purple-50 to-indigo-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-950 border-indigo-200 shadow-2xs hover:shadow-xs group'
+                            }`}
+                            title="Apply to volunteer for this event"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="p-1 rounded-lg bg-indigo-600 text-white shadow-2xs group-hover:scale-105 transition">
+                                <HeartHandshake className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="font-black text-indigo-950">Volunteer for Event</span>
+                            </div>
+
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isVolunteerFull
+                                ? 'bg-slate-200 text-slate-600'
+                                : 'bg-indigo-600 text-white'
+                            }`}>
+                              {isVolunteerFull ? 'Slots Full' : `${volunteersCount}/${volunteersRequired} Slots`}
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Primary Action Button */}
-                  <button
-                    onClick={() => {
-                      if (hasWinners) {
-                        setSelectedEventForLeaderboard(event);
-                        setShowLeaderboardModal(true);
-                      } else {
-                        handleRegister(event._id);
-                      }
-                    }}
-                    disabled={!hasWinners && (!eligible || registered || expired || event.isPaused || isFull)}
-                    className={`mt-auto w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-                      hasWinners
-                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25'
-                        : registered
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
-                          : (!eligible || expired || event.isPaused || isFull)
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                            : 'bg-gradient-to-r from-blue-600 to-[#00B5AD] hover:from-blue-500 hover:to-[#00c7be] text-white shadow-lg shadow-blue-500/20 hover:scale-[1.01]'
-                    }`}
-                  >
-                    {hasWinners ? (
-                      <>
-                        <Trophy className="w-4 h-4" />
-                        <span>View Leaderboard</span>
-                      </>
-                    ) : registered ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>Enrolled in Event</span>
-                      </>
-                    ) : expired ? (
-                      <span>Registration Closed</span>
-                    ) : event.isPaused ? (
-                      <span>Registration Paused</span>
-                    ) : isFull ? (
-                      <span>Event Capacity Full</span>
-                    ) : !eligible ? (
-                      <span>Restricted to {event.department}</span>
-                    ) : (
-                      <>
-                        <span>{event.isGroupEvent ? 'Form Team & Register' : 'Register Now'}</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
+                  {isStudentVolunteer ? (
+                    <button
+                      disabled
+                      className="mt-auto w-full py-3.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                      title="Volunteers cannot participate in the event. Opt out of volunteering if you want to participate instead."
+                    >
+                      <HeartHandshake className="w-4 h-4 text-indigo-400" />
+                      <span>Registered as Volunteer (Participation Disabled)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (hasWinners) {
+                          setSelectedEventForLeaderboard(event);
+                          setShowLeaderboardModal(true);
+                        } else {
+                          handleRegister(event._id);
+                        }
+                      }}
+                      disabled={!hasWinners && (!eligible || registered || expired || event.isPaused || isFull)}
+                      className={`mt-auto w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                        hasWinners
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25'
+                          : registered
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
+                            : (!eligible || expired || event.isPaused || isFull)
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                              : 'bg-gradient-to-r from-blue-600 to-[#00B5AD] hover:from-blue-500 hover:to-[#00c7be] text-white shadow-lg shadow-blue-500/20 hover:scale-[1.01]'
+                      }`}
+                    >
+                      {hasWinners ? (
+                        <>
+                          <Trophy className="w-4 h-4" />
+                          <span>View Leaderboard</span>
+                        </>
+                      ) : registered ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>Enrolled in Event</span>
+                        </>
+                      ) : expired ? (
+                        <span>Registration Closed</span>
+                      ) : event.isPaused ? (
+                        <span>Registration Paused</span>
+                      ) : isFull ? (
+                        <span>Event Capacity Full</span>
+                      ) : !eligible ? (
+                        <span>Restricted to {event.department}</span>
+                      ) : (
+                        <>
+                          <span>{event.isGroupEvent ? 'Form Team & Register' : 'Register Now'}</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  )}
 
                   {/* Certificates available for this event */}
                   {eventCerts.length > 0 && (
@@ -1427,17 +1690,21 @@ const StudentDashboard = () => {
                           className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between transition border ${
                             cert.certificateType === 'winner'
                               ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
-                              : 'bg-teal-50 hover:bg-teal-100 text-teal-900 border-teal-300'
+                              : cert.certificateType === 'volunteer'
+                                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-300'
+                                : 'bg-teal-50 hover:bg-teal-100 text-teal-900 border-teal-300'
                           }`}
                         >
                           <div className="flex items-center gap-1.5 truncate mr-2">
                             {cert.certificateType === 'winner' ? (
                               <Trophy className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            ) : cert.certificateType === 'volunteer' ? (
+                              <HeartHandshake className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                             ) : (
                               <Award className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                             )}
                             <span className="truncate">
-                              {cert.certificateType === 'winner' ? `Winner (${cert.positionText})` : 'Participant'} Certificate
+                              {cert.certificateType === 'winner' ? `Winner (${cert.positionText})` : cert.certificateType === 'volunteer' ? 'Volunteer' : 'Participant'} Certificate
                             </span>
                           </div>
                           <span className="text-[10px] bg-white px-2 py-0.5 rounded-md font-bold shadow-2xs shrink-0">
@@ -2085,6 +2352,178 @@ const StudentDashboard = () => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Volunteer Confirmation Modal */}
+      {showVolunteerConfirmModal && selectedEventForVolunteer && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4 border border-indigo-100 shadow-xs">
+              <HeartHandshake className="w-7 h-7" />
+            </div>
+
+            <h3 className="text-center font-black text-lg text-slate-900 tracking-tight">
+              Confirm Event Volunteering
+            </h3>
+            <p className="text-center text-xs font-bold text-indigo-600 mt-0.5">
+              {selectedEventForVolunteer.name}
+            </p>
+
+            <div className="my-5 p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 space-y-2 text-xs text-amber-900">
+              <div className="flex items-center gap-1.5 font-black text-amber-950">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Important Participation Rules:</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-[11px] leading-relaxed text-amber-900/90 pl-1">
+                <li>
+                  <strong>No Contestant Entry:</strong> As an official volunteer, you will help coordinate operations and will <strong>not be able to participate</strong> as a contestant/attendee.
+                </li>
+                <li>
+                  <strong>24h Opt-Out Window:</strong> You can opt out anytime until <strong>24 hours before</strong> the registration deadline.
+                </li>
+                <li>
+                  <strong>Full Re-eligibility:</strong> If you opt out, you are fully restored to participate or volunteer again (if spots remain).
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVolunteerConfirmModal(false);
+                  setSelectedEventForVolunteer(null);
+                }}
+                disabled={volunteeringSubmitting}
+                className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmVolunteer}
+                disabled={volunteeringSubmitting}
+                className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs shadow-md shadow-indigo-500/25 transition disabled:opacity-50"
+              >
+                {volunteeringSubmitting ? 'Registering...' : 'Yes, Confirm Volunteering'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Volunteer Instructions / Organizer Message Modal */}
+      {showVolunteerMessageModal && activeVolunteerMessageEvent && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[115] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-900">
+                    Organizer&apos;s Volunteer Instructions
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {activeVolunteerMessageEvent.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowVolunteerMessageModal(false);
+                  setActiveVolunteerMessageEvent(null);
+                }}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Message Content */}
+            <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 text-xs text-indigo-950 leading-relaxed whitespace-pre-line mb-4 max-h-60 overflow-y-auto">
+              {activeVolunteerMessageEvent.volunteerMessage ? (
+                activeVolunteerMessageEvent.volunteerMessage
+              ) : (
+                <p className="italic text-slate-400">
+                  No specific instructions have been added yet by the organizer. Please stay in touch with the coordinator or check back closer to event day.
+                </p>
+              )}
+            </div>
+
+            {/* Organizer Contact Summary */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-1 mb-5">
+              <div className="font-bold text-slate-700">
+                Organizer: {activeVolunteerMessageEvent.organizer?.name || 'Faculty / Club Coordinator'}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Email: {activeVolunteerMessageEvent.organizer?.organizerDetails?.contactEmail || activeVolunteerMessageEvent.organizer?.email || 'N/A'}
+              </div>
+              {activeVolunteerMessageEvent.organizer?.organizerDetails?.mobileNo && (
+                <div className="text-[11px] text-slate-500">
+                  Contact: {activeVolunteerMessageEvent.organizer?.organizerDetails?.mobileNo}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowVolunteerMessageModal(false);
+                setActiveVolunteerMessageEvent(null);
+              }}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-2xl transition shadow-md shadow-indigo-500/20"
+            >
+              Got it, Understood
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Volunteer Opt-Out Confirmation Modal */}
+      {showVolunteerOptOutModal && selectedEventForOptOut && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-xs">
+              <AlertCircle className="w-7 h-7" />
+            </div>
+
+            <h3 className="text-center font-black text-lg text-slate-900 tracking-tight">
+              Opt-Out from Volunteering
+            </h3>
+            <p className="text-center text-xs font-bold text-slate-500 mt-0.5">
+              {selectedEventForOptOut.name}
+            </p>
+
+            <p className="my-4 text-center text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to withdraw from volunteering for this event? 
+              Once you opt out, your volunteering spot will be released, and you will become eligible to participate as a contestant or volunteer again.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVolunteerOptOutModal(false);
+                  setSelectedEventForOptOut(null);
+                }}
+                disabled={optOutSubmitting}
+                className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
+              >
+                Nevermind
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmOptOut}
+                disabled={optOutSubmitting}
+                className="flex-1 py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md shadow-red-500/25 transition disabled:opacity-50"
+              >
+                {optOutSubmitting ? 'Opting Out...' : 'Yes, Opt Out'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { X, Download, Printer, ExternalLink, Award, Trophy, CheckCircle, Sparkles, ShieldCheck } from 'lucide-react';
+import { X, Download, Printer, ExternalLink, Award, Trophy, CheckCircle, Sparkles, ShieldCheck, HeartHandshake } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { COLLEGE_LOGO, NAAC_LOGO } from '../assets/collegeLogos';
@@ -13,9 +13,10 @@ export default function CertificateModal({ certificate, onClose }) {
 
   const theme = getThemeById(certificate.theme);
   const isWinner = certificate.certificateType === 'winner';
+  const isVolunteer = certificate.certificateType === 'volunteer';
   const eventName = certificate.eventName || 'Campus Event';
   const studentName = certificate.studentName || 'Student Participant';
-  const positionText = certificate.positionText || (isWinner ? 'Winner' : 'Participant');
+  const positionText = certificate.positionText || (isWinner ? 'Winner' : isVolunteer ? 'Official Volunteer' : 'Participant');
   const teamName = certificate.teamName;
   const isTeam = certificate.isGroupEvent && Boolean(teamName);
 
@@ -111,12 +112,18 @@ export default function CertificateModal({ certificate, onClose }) {
         {/* Modal Top Bar */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl ${isWinner ? 'bg-amber-500/20 text-amber-400' : 'bg-teal-500/20 text-teal-400'}`}>
-              {isWinner ? <Trophy className="w-5 h-5" /> : <Award className="w-5 h-5" />}
+            <div className={`p-2 rounded-xl ${
+              isWinner 
+                ? 'bg-amber-500/20 text-amber-400' 
+                : isVolunteer
+                  ? 'bg-indigo-500/20 text-indigo-400'
+                  : 'bg-teal-500/20 text-teal-400'
+            }`}>
+              {isWinner ? <Trophy className="w-5 h-5" /> : isVolunteer ? <HeartHandshake className="w-5 h-5" /> : <Award className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="font-bold text-base flex items-center gap-2">
-                <span>{isWinner ? 'Certificate of Merit' : 'Certificate of Participation'}</span>
+                <span>{isWinner ? 'Certificate of Merit' : isVolunteer ? 'Certificate of Volunteering' : 'Certificate of Participation'}</span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 font-medium">
                   {eventName}
                 </span>
@@ -205,14 +212,24 @@ export default function CertificateModal({ certificate, onClose }) {
               <div className="inline-flex flex-col items-center">
                 <div
                   className={`px-8 py-1.5 rounded-full uppercase tracking-[0.25em] text-sm font-bold shadow-md flex items-center gap-2 ${
-                    isWinner ? theme.badgeWinner : theme.badgeParticipant
+                    isWinner 
+                      ? theme.badgeWinner 
+                      : isVolunteer
+                        ? 'bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-700 border border-indigo-300 text-white'
+                        : theme.badgeParticipant
                   }`}
                   style={{ fontFamily: theme.fontHeading }}
                 >
-                  {isWinner ? <Trophy className="w-4 h-4 text-amber-200" /> : <Award className="w-4 h-4 text-cyan-200" />}
-                  <span>{isWinner ? 'Certificate of Merit' : 'Certificate of Participation'}</span>
+                  {isWinner ? (
+                    <Trophy className="w-4 h-4 text-amber-200" />
+                  ) : isVolunteer ? (
+                    <HeartHandshake className="w-4 h-4 text-indigo-200" />
+                  ) : (
+                    <Award className="w-4 h-4 text-cyan-200" />
+                  )}
+                  <span>{isWinner ? 'Certificate of Merit' : isVolunteer ? 'Certificate of Volunteering' : 'Certificate of Participation'}</span>
                 </div>
-                <div className={`w-32 h-0.5 ${theme.badgeUnderline} mt-1.5`} />
+                <div className={`w-32 h-0.5 ${isVolunteer ? 'bg-indigo-500' : theme.badgeUnderline} mt-1.5`} />
               </div>
             </div>
 
@@ -261,6 +278,18 @@ export default function CertificateModal({ certificate, onClose }) {
                     <strong className={`${theme.eventNameColor} font-black text-[15px]`}>&quot;{eventName}&quot;</strong>
                     {certificate.eventCategory && <span> ({certificate.eventCategory})</span>} held on{' '}
                     <strong className="text-slate-900 font-bold">{eventDateText}</strong> organized at{' '}
+                    <span>Deogiri Institute of Engineering and Management Studies, Chhatrapati Sambhajinagar.</span>
+                  </p>
+                ) : isVolunteer ? (
+                  <p>
+                    for exemplary leadership, outstanding dedication, and invaluable contribution as an{' '}
+                    <strong className="font-bold text-base text-indigo-700 underline decoration-indigo-400 underline-offset-4">
+                      Official Event Volunteer
+                    </strong>{' '}
+                    in ensuring the seamless execution and success of the campus event{' '}
+                    <strong className={`${theme.eventNameColor} font-black text-[15px]`}>&quot;{eventName}&quot;</strong>
+                    {certificate.eventCategory && <span> ({certificate.eventCategory})</span>} held on{' '}
+                    <strong className="text-slate-900 font-bold">{eventDateText}</strong> at{' '}
                     <span>Deogiri Institute of Engineering and Management Studies, Chhatrapati Sambhajinagar.</span>
                   </p>
                 ) : (

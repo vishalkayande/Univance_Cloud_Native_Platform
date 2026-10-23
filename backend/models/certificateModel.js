@@ -65,7 +65,7 @@ const certificateSchema = new mongoose.Schema(
     },
     certificateType: {
       type: String,
-      enum: ['participant', 'winner'],
+      enum: ['participant', 'winner', 'volunteer'],
       required: true,
       index: true,
     },

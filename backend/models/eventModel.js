@@ -51,6 +51,42 @@ const eventSchema = mongoose.Schema(
       type: Number,
       default: 0, // 0 means no limit (for individual events) or team limit (for group events)
     },
+    volunteersRequired: {
+      type: Number,
+      default: 0, // 0 means no volunteers required
+    },
+    volunteerMessage: {
+      type: String,
+      default: '', // Instructions or notice for volunteers set by organizer
+    },
+    volunteers: [
+      {
+        student: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
+        name: String,
+        college: String,
+        department: String,
+        class: String,
+        rollNo: String,
+        year: String,
+        email: String,
+        mobileNo: String,
+        registeredAt: {
+          type: Date,
+          default: Date.now,
+        },
+        certificateAllocated: {
+          type: Boolean,
+          default: false,
+        },
+        certificateAllocatedAt: {
+          type: Date,
+        },
+      },
+    ],
     isPaused: {
       type: Boolean,
       default: false,
@@ -177,6 +213,10 @@ const eventSchema = mongoose.Schema(
         type: Boolean,
         default: false,
       },
+      volunteerCertificatesAllocated: {
+        type: Boolean,
+        default: false,
+      },
       allocatedAt: {
         type: Date,
       },
@@ -245,7 +285,7 @@ const eventSchema = mongoose.Schema(
           teamName: String,
           type: {
             type: String,
-            enum: ['participant', 'winner'],
+            enum: ['participant', 'winner', 'volunteer'],
             default: 'participant',
           },
           certificateUrl: String,

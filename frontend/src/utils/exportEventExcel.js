@@ -219,3 +219,114 @@ export const exportEventRegistrationsToExcel = (event, registrations) => {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 };
+
+export const exportEventVolunteersToExcel = (event, volunteers) => {
+  if (!volunteers || volunteers.length === 0) {
+    alert('No volunteers registered for this event yet.');
+    return;
+  }
+
+  const isInterCollege = event.isInterCollege || event.level === 'intercollege';
+  const eventScopeText = isInterCollege
+    ? 'Inter-College (Multi-Institute Open Event)'
+    : `Intra-College (${event.college || 'Campus Restricted'})`;
+
+  const eventDateStr = event.date ? new Date(event.date).toLocaleDateString() : 'N/A';
+  const eventTimeStr = event.time || 'N/A';
+  const organizerCollegeStr = event.college || 'Host Institute';
+  const organizerNameStr = event.organizer?.name || 'Authorized Organizer';
+  const organizerEmailStr = event.organizer?.email || 'N/A';
+  const exportTimestamp = new Date().toLocaleString();
+
+  // 1. Build Metadata Header Banner
+  const lines = [
+    ['========================================================================================'],
+    ['UNIVANCE OFFICIAL EVENT VOLUNTEERS & SERVICE ROSTER'],
+    ['========================================================================================'],
+    [`Event Name:`, event.name || 'Untitled Event'],
+    [`Event Scope:`, eventScopeText],
+    [`Host / Organizing Institute:`, organizerCollegeStr],
+    [`Organized By:`, `${organizerNameStr} (${organizerEmailStr})`],
+    [`Event Date & Time:`, `${eventDateStr} at ${eventTimeStr}`],
+    [`Volunteers Required:`, event.volunteersRequired || volunteers.length],
+    [`Volunteers Enrolled:`, volunteers.length],
+    [`Organizer Volunteer Message:`, event.volunteerMessage || 'None provided'],
+    [`Report Generated On:`, exportTimestamp],
+    ['========================================================================================'],
+    [''], // Empty row before tabular data
+  ];
+
+  let csvContent = lines
+    .map(line => line.map(col => escapeCSV(col)).join(','))
+    .join('\r\n') + '\r\n';
+
+  // 2. Tabular Headers
+  const headers = [
+    'Sr No',
+    'Volunteer Name',
+    'College / Institute',
+    'Department / Branch',
+    'Academic Year',
+    'Class / Div',
+    'Roll No / PRN',
+    'Email Address',
+    'Contact Mobile',
+    'Registration Date',
+    'Registration Time',
+    'Certificate Awarded',
+    'Certificate Issue Date',
+  ];
+
+  csvContent += headers.map(h => escapeCSV(h)).join(',') + '\r\n';
+
+  // 3. Tabular Data Rows
+  volunteers.forEach((v, index) => {
+    const volName = v.name || v.student?.name || 'N/A';
+    const volCollege = v.college || v.student?.collegeName || organizerCollegeStr;
+    const volDept = v.department || v.student?.studentDetails?.branch || 'N/A';
+    const volYear = v.year || v.student?.studentDetails?.year || 'N/A';
+    const volClass = v.class || v.student?.studentDetails?.class || 'N/A';
+    const volRollNo = v.rollNo || v.student?.studentDetails?.rollNo || 'N/A';
+    const volEmail = v.email || v.student?.email || 'N/A';
+    const volMobile = v.mobileNo || v.student?.studentDetails?.mobileNo || 'N/A';
+
+    const regDateObj = v.registeredAt ? new Date(v.registeredAt) : null;
+    const regDate = regDateObj ? regDateObj.toLocaleDateString() : 'N/A';
+    const regTime = regDateObj ? regDateObj.toLocaleTimeString() : 'N/A';
+
+    const certAwarded = v.certificateAllocated ? 'YES' : 'NO';
+    const certDateObj = v.certificateAllocatedAt ? new Date(v.certificateAllocatedAt) : null;
+    const certDate = certDateObj ? certDateObj.toLocaleDateString() : 'N/A';
+
+    csvContent += [
+      index + 1,
+      volName,
+      volCollege,
+      volDept,
+      volYear,
+      volClass,
+      volRollNo,
+      volEmail,
+      volMobile,
+      regDate,
+      regTime,
+      certAwarded,
+      certDate,
+    ].map(escapeCSV).join(',') + '\r\n';
+  });
+
+  // Prepend UTF-8 BOM so Excel opens with proper encoding
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  const sanitizedEventName = (event.name || 'Event').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `${sanitizedEventName}_Volunteers_Roster_${new Date().toISOString().slice(0, 10)}.csv`;
+
+  link.setAttribute('href', url);
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};

@@ -14,6 +14,11 @@ const {
   getTeamInvitations,
   respondTeamInvitation,
   replaceTeamMember,
+  volunteerForEvent,
+  optOutVolunteer,
+  getEventVolunteers,
+  updateVolunteerConfig,
+  allocateVolunteerCertificates,
 } = require('../controllers/eventController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -35,5 +40,10 @@ router.post('/:id/unenroll', protect, authorize('student'), unenrollEvent);
 router.put('/:id/team-invitation/respond', protect, authorize('student'), respondTeamInvitation);
 router.put('/:id/replace-team-member', protect, authorize('student'), replaceTeamMember);
 router.get('/:id/registrations', protect, authorize('organizer', 'admin'), getRegistrations);
+router.get('/:id/volunteers', protect, authorize('organizer', 'admin'), getEventVolunteers);
+router.post('/:id/volunteer', protect, authorize('student'), volunteerForEvent);
+router.post('/:id/volunteer-optout', protect, authorize('student'), optOutVolunteer);
+router.put('/:id/volunteer-config', protect, authorize('organizer', 'admin'), updateVolunteerConfig);
+router.put('/:id/volunteer-certificates', protect, authorize('organizer', 'admin'), allocateVolunteerCertificates);
 
 module.exports = router;

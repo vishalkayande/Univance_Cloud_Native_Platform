@@ -37,7 +37,9 @@ const createEvent = async (req, res) => {
     photo, 
     date, 
     time, 
-    registrationLimit, 
+    registrationLimit,
+    volunteersRequired,
+    volunteerMessage,
     isGroupEvent, 
     minTeamSize, 
     maxTeamSize,
@@ -87,6 +89,8 @@ const createEvent = async (req, res) => {
     url,
     upiId,
     registrationLimit: parseInt(registrationLimit) || 0,
+    volunteersRequired: parseInt(volunteersRequired) || 0,
+    volunteerMessage: volunteerMessage || '',
     photo,
     date,
     time,
@@ -147,6 +151,7 @@ const getEvents = async (req, res) => {
     .populate('registrations.student', 'name collegeName studentDetails email')
     .populate('registrations.teamLeader', 'name collegeName studentDetails email')
     .populate('registrations.teamMembers.student', 'name collegeName studentDetails email')
+    .populate('volunteers.student', 'name collegeName studentDetails email')
     .sort({ createdAt: -1 });
 
   // For students: apply college isolation and department eligibility
@@ -240,6 +245,16 @@ const enrollEvent = async (req, res) => {
     }
   }
 
+  // Volunteer Check: If registered as a volunteer, student cannot participate as a contestant/attendee
+  const isVolunteer = (event.volunteers || []).some(
+    v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : '') === req.user._id.toString()
+  );
+  if (isVolunteer) {
+    return res.status(400).json({
+      message: 'You are registered as a volunteer for this event and cannot participate as a contestant/attendee.'
+    });
+  }
+
   // Check capacity limit
   if (event.registrationLimit > 0 && event.registrations.length >= event.registrationLimit) {
     return res.status(400).json({ message: 'Event registration limit reached' });
@@ -266,9 +281,18 @@ const enrollEvent = async (req, res) => {
       }
     }
 
-    // Check if any team member is already registered in this event
+    // Check if any team member is registered as a volunteer or already registered in this event
     const allMemberIds = [teamLeader, ...teamMembers.map(m => m.student).filter(Boolean)];
     for (const memberId of allMemberIds) {
+      const memberIsVolunteer = (event.volunteers || []).some(
+        v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : '') === memberId.toString()
+      );
+      if (memberIsVolunteer) {
+        return res.status(400).json({
+          message: 'One or more selected team members are registered as volunteers for this event and cannot participate in a team.'
+        });
+      }
+
       const alreadyRegistered = event.registrations.some(reg => {
         if (reg.teamMembers) {
           return reg.teamLeader.toString() === memberId.toString() || 
@@ -703,6 +727,16 @@ const respondTeamInvitation = async (req, res) => {
     }
 
     if (action === 'accept') {
+      // Check if student is volunteering in this event
+      const isVolunteer = (event.volunteers || []).some(
+        v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : '') === studentId
+      );
+      if (isVolunteer) {
+        return res.status(400).json({
+          message: 'You are registered as a volunteer for this event and cannot accept a participation invitation.'
+        });
+      }
+
       foundMemberSlot.status = 'accepted';
       foundMemberSlot.respondedAt = new Date();
 
@@ -769,8 +803,18 @@ const replaceTeamMember = async (req, res) => {
       }
     }
 
-    // Check if new student is already registered in this event
+    // Check if new student is a volunteer in this event
     const newStudentIdStr = newStudent.student.toString();
+    const newStudentIsVolunteer = (event.volunteers || []).some(
+      v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : '') === newStudentIdStr
+    );
+    if (newStudentIsVolunteer) {
+      return res.status(400).json({
+        message: 'The selected student is registered as a volunteer for this event and cannot join a team.'
+      });
+    }
+
+    // Check if new student is already registered in this event
     const alreadyRegistered = event.registrations.some((r) => {
       if (r.teamMembers) {
         return (
@@ -839,6 +883,8 @@ const getMyCertificates = async (req, res) => {
       $or: [
         { 'certificates.participantCertificatesAllocated': true },
         { 'certificates.winnerCertificatesAllocated': true },
+        { 'certificates.volunteerCertificatesAllocated': true },
+        { 'volunteers.certificateAllocated': true },
       ],
     });
     for (const ev of eventsWithCerts) {
@@ -852,6 +898,268 @@ const getMyCertificates = async (req, res) => {
   } catch (error) {
     console.error('Error fetching certificates:', error);
     res.status(500).json({ message: 'Failed to fetch certificates' });
+  }
+};
+
+// @desc    Register as a volunteer for an event
+// @route   POST /api/events/:id/volunteer
+// @access  Private (Student)
+const volunteerForEvent = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    // Check deadline
+    const deadline = new Date(`${event.date.toISOString().split('T')[0]}T${event.time}`);
+    if (new Date() > deadline) {
+      return res.status(400).json({ message: 'Event registration deadline has passed' });
+    }
+
+    // Check if paused
+    if (event.isPaused) {
+      return res.status(400).json({ message: 'Event registration is paused by organizer' });
+    }
+
+    // Check if event accepts volunteers
+    const volunteersRequired = event.volunteersRequired || 0;
+    if (volunteersRequired <= 0) {
+      return res.status(400).json({ message: 'This event does not require volunteers' });
+    }
+
+    // Check capacity
+    const currentVolunteers = event.volunteers || [];
+    if (currentVolunteers.length >= volunteersRequired) {
+      return res.status(400).json({ message: 'Volunteer positions are full for this event' });
+    }
+
+    // Check if user is already volunteering
+    const alreadyVolunteer = currentVolunteers.some(
+      v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : '') === req.user._id.toString()
+    );
+    if (alreadyVolunteer) {
+      return res.status(400).json({ message: 'You are already registered as a volunteer for this event' });
+    }
+
+    // Check if user is already registered as a participant
+    const isParticipant = (event.registrations || []).some(reg => {
+      if (reg.teamMembers) {
+        return (reg.teamLeader && reg.teamLeader.toString() === req.user._id.toString()) ||
+               reg.teamMembers.some(tm => tm.student && tm.student.toString() === req.user._id.toString() && !tm.isUnregistered && tm.status !== 'rejected' && tm.status !== 'left');
+      }
+      return reg.student && reg.student.toString() === req.user._id.toString();
+    });
+
+    if (isParticipant) {
+      return res.status(400).json({
+        message: 'You are currently enrolled as a participant in this event. Please cancel your event registration first if you wish to volunteer instead.'
+      });
+    }
+
+    // Scope check: Intra-college events restricted to host college
+    const isInter = event.isInterCollege === true || event.level === 'intercollege';
+    if (!isInter) {
+      if (event.college && req.user.collegeName && !isSameCollege(event.college, req.user.collegeName)) {
+        return res.status(403).json({ message: `Volunteering is restricted to students of ${event.college}` });
+      }
+    }
+
+    // Add volunteer
+    const volunteerEntry = {
+      student: req.user._id,
+      name: req.user.name,
+      college: req.user.collegeName || event.college,
+      department: req.user.studentDetails?.branch || '',
+      class: req.user.studentDetails?.class || '',
+      rollNo: req.user.studentDetails?.rollNo || '',
+      year: req.user.studentDetails?.year || '',
+      email: req.user.email,
+      mobileNo: req.body.mobileNo || req.user.studentDetails?.mobileNo || '',
+      registeredAt: new Date(),
+      certificateAllocated: false,
+    };
+
+    event.volunteers.push(volunteerEntry);
+    await event.save();
+
+    res.status(201).json({
+      message: 'Successfully registered as an event volunteer!',
+      volunteerMessage: event.volunteerMessage || '',
+      volunteersCount: event.volunteers.length,
+      volunteersRequired: event.volunteersRequired,
+    });
+  } catch (error) {
+    console.error('Error volunteering for event:', error);
+    res.status(500).json({ message: 'Failed to register as volunteer' });
+  }
+};
+
+// @desc    Opt-out from volunteering for an event (allowed until 24 hours before deadline)
+// @route   POST /api/events/:id/volunteer-optout
+// @access  Private (Student)
+const optOutVolunteer = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    const volunteerIndex = (event.volunteers || []).findIndex(
+      v => (v.student?._id ? v.student._id.toString() : v.student ? v.student.toString() : '') === req.user._id.toString()
+    );
+
+    if (volunteerIndex === -1) {
+      return res.status(400).json({ message: 'You are not registered as a volunteer for this event' });
+    }
+
+    // 24-hour deadline rule:
+    // Opting out works till 24 hours left of event registration deadline
+    const deadline = new Date(`${event.date.toISOString().split('T')[0]}T${event.time}`);
+    const now = new Date();
+    const hoursRemaining = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+    if (hoursRemaining < 24) {
+      return res.status(400).json({
+        message: 'Opting out from volunteering is only allowed up to 24 hours prior to the event registration deadline. Less than 24 hours remain.'
+      });
+    }
+
+    // Remove from volunteers
+    event.volunteers.splice(volunteerIndex, 1);
+
+    // Delete any issued volunteer certificate if one was created
+    await Certificate.deleteOne({
+      eventId: event._id,
+      certificateType: 'volunteer',
+      student: req.user._id,
+    });
+
+    await event.save();
+
+    res.json({
+      message: 'Successfully opted out of volunteering. You can now participate in the event or volunteer again if slots are available.'
+    });
+  } catch (error) {
+    console.error('Error opting out of volunteering:', error);
+    res.status(500).json({ message: 'Failed to opt-out of volunteering' });
+  }
+};
+
+// @desc    Get all volunteers for an event (for organizer and admin)
+// @route   GET /api/events/:id/volunteers
+// @access  Private (Organizer, Admin)
+const getEventVolunteers = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id)
+      .populate('organizer', 'name email collegeName organizerDetails')
+      .populate('volunteers.student', 'name collegeName studentDetails email');
+
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    // Check authorization
+    if (req.user.role !== 'admin' && event.organizer._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    res.json({
+      volunteers: event.volunteers || [],
+      volunteersRequired: event.volunteersRequired || 0,
+      volunteerMessage: event.volunteerMessage || '',
+      eventName: event.name,
+      eventDate: event.date,
+      eventTime: event.time,
+      college: event.college,
+    });
+  } catch (error) {
+    console.error('Error fetching event volunteers:', error);
+    res.status(500).json({ message: 'Failed to fetch volunteers' });
+  }
+};
+
+// @desc    Update volunteer message and/or required volunteer count
+// @route   PUT /api/events/:id/volunteer-config
+// @access  Private (Organizer, Admin)
+const updateVolunteerConfig = async (req, res) => {
+  try {
+    const { volunteerMessage, volunteersRequired } = req.body;
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    if (req.user.role !== 'admin' && event.organizer.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (volunteerMessage !== undefined) {
+      event.volunteerMessage = volunteerMessage;
+    }
+
+    if (volunteersRequired !== undefined) {
+      event.volunteersRequired = Math.max(0, parseInt(volunteersRequired) || 0);
+    }
+
+    await event.save();
+
+    res.json({
+      message: 'Volunteer configuration updated successfully',
+      volunteerMessage: event.volunteerMessage,
+      volunteersRequired: event.volunteersRequired,
+    });
+  } catch (error) {
+    console.error('Error updating volunteer config:', error);
+    res.status(500).json({ message: 'Failed to update volunteer config' });
+  }
+};
+
+// @desc    Selectively allocate volunteering certificates to chosen students
+// @route   PUT /api/events/:id/volunteer-certificates
+// @access  Private (Organizer, Admin)
+const allocateVolunteerCertificates = async (req, res) => {
+  try {
+    const { selectedStudentIds } = req.body; // Array of student user IDs
+    const event = await Event.findById(req.params.id)
+      .populate('volunteers.student', 'name email studentDetails collegeName');
+
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    if (req.user.role !== 'admin' && event.organizer.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    const selectedSet = new Set((selectedStudentIds || []).map(id => id.toString()));
+
+    for (const vol of (event.volunteers || [])) {
+      const volStudentId = vol.student?._id ? vol.student._id.toString() : (vol.student ? vol.student.toString() : '');
+      const isSelected = selectedSet.has(volStudentId) || (vol._id && selectedSet.has(vol._id.toString()));
+
+      vol.certificateAllocated = isSelected;
+      if (isSelected && !vol.certificateAllocatedAt) {
+        vol.certificateAllocatedAt = new Date();
+      }
+    }
+
+    event.certificates = event.certificates || {};
+    event.certificates.volunteerCertificatesAllocated = (event.volunteers || []).some(v => v.certificateAllocated);
+
+    await event.save();
+
+    // Persist to Certificate collection
+    await syncEventCertificates(event);
+
+    res.json({
+      message: 'Volunteer certificates updated successfully',
+      volunteers: event.volunteers,
+    });
+  } catch (error) {
+    console.error('Error allocating volunteer certificates:', error);
+    res.status(500).json({ message: 'Failed to allocate volunteer certificates' });
   }
 };
 
@@ -870,4 +1178,9 @@ module.exports = {
   getTeamInvitations,
   respondTeamInvitation,
   replaceTeamMember,
+  volunteerForEvent,
+  optOutVolunteer,
+  getEventVolunteers,
+  updateVolunteerConfig,
+  allocateVolunteerCertificates,
 };
