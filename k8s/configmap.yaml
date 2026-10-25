@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: univance-config
+  labels:
+    app: univance
+data:
+  PORT: "5002"
+  NODE_ENV: "production"
+  FRONTEND_URL: "http://localhost"
+  SMTP_HOST: "smtp-relay.brevo.com"
+  SMTP_PORT: "587"
+  FROM_NAME: "UniVance"
+  FROM_EMAIL: "vishalskayande121@gmail.com"

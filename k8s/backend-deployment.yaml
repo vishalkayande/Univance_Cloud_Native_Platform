@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: univance
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: univance
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: univance
+        tier: backend
+    spec:
+      containers:
+        - name: backend
+          # Replace with your Docker Hub or AWS ECR repository image
+          # Example: your-dockerhub-username/univance-backend:latest
+          # Or: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/univance-backend:latest
+          image: univance-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5002
+          envFrom:
+            - configMapRef:
+                name: univance-config
+            - secretRef:
+                name: univance-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /api/ping
+              port: 5002
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/ping
+              port: 5002
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app: univance
+    tier: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5002
+      targetPort: 5002
+  selector:
+    app: univance
+    tier: backend

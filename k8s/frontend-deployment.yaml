@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: univance
+    tier: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: univance
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: univance
+        tier: frontend
+    spec:
+      containers:
+        - name: frontend
+          # Replace with your Docker Hub or AWS ECR repository image
+          # Example: your-dockerhub-username/univance-frontend:latest
+          # Or: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/univance-frontend:latest
+          image: univance-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: univance
+    tier: frontend
+spec:
+  # Use NodePort for KinD on EC2 / Local K8s; change to LoadBalancer if deploying to managed AWS EKS
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+  selector:
+    app: univance
+    tier: frontend
