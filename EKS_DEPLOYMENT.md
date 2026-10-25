@@ -118,9 +118,9 @@ kind load docker-image univance-frontend:latest --name univance-cluster
 
 ### Step 5: Deploy UniVance to the Cluster
 ```bash
-# 1. Create a local Secret manifest from the template and replace its placeholder values.
-#    Do not commit k8s/secret.yaml; it is excluded by .gitignore.
-cp k8s/secret.example.yaml k8s/secret.yaml
+# 1. Create the local Secret manifest if it does not already exist, then replace
+#    the placeholder values. Do not commit k8s/secret.yaml; it is excluded by .gitignore.
+cp -n k8s/secret.example.yaml k8s/secret.yaml
 
 # 2. Apply ConfigMap and Secrets
 kubectl apply -f k8s/configmap.yaml
