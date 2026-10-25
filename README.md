@@ -160,11 +160,18 @@ Quick Steps:
 
 ---
 ## Screenshots:
-<img width="1919" height="1138" alt="Screenshot 2026-06-05 134814" src="https://github.com/user-attachments/assets/33306e65-c301-4dbf-b0bd-f7c30a31fb25" />
-<img width="1919" height="1088" alt="Screenshot 2026-06-05 135140" src="https://github.com/user-attachments/assets/e62ff2f4-a36e-4f2a-803b-635940e9400e" />
-<img width="1919" height="1094" alt="Screenshot 2026-06-05 135219" src="https://github.com/user-attachments/assets/581b01d0-0ffe-41d7-9063-3e471ce44c6c" />
-<img width="1917" height="1040" alt="Screenshot 2026-06-05 135259" src="https://github.com/user-attachments/assets/d959085f-344d-47e4-b6c2-acd540e378ab" />
-<img width="1919" height="1049" alt="Screenshot 2026-06-05 135319" src="https://github.com/user-attachments/assets/f59a085d-8301-438f-9b80-0f16205b475d" />
+<img width="1917" height="1085" alt="Screenshot 2026-10-25 101020" src="https://github.com/user-attachments/assets/e8e1fe24-ae5b-413b-b9d6-b93f1dc3ae55" />
+<img width="1917" height="1045" alt="Screenshot 2026-10-25 101032" src="https://github.com/user-attachments/assets/d0f75e84-b58c-43cf-8c08-9e6e7aa2fd90" />
+<img width="1917" height="1085" alt="Screenshot 2026-10-23 134935" src="https://github.com/user-attachments/assets/7b991114-332e-4433-bac7-1c4a4867fa4c" />
+<img width="1917" height="1082" alt="Screenshot 2026-10-23 135000" src="https://github.com/user-attachments/assets/29ce9038-9d35-463a-8b24-f3c74002fc82" />
+<img width="1917" height="1057" alt="Screenshot 2026-10-23 135011" src="https://github.com/user-attachments/assets/6fd4df20-ce2f-4000-a8f8-74f71a06e8cc" />
+<img width="1917" height="1080" alt="Screenshot 2026-10-23 135043" src="https://github.com/user-attachments/assets/99702c30-1f35-490b-86fe-3485a3df34e0" />
+<img width="1917" height="1071" alt="Screenshot 2026-10-23 135130" src="https://github.com/user-attachments/assets/ece57557-8e3a-45c3-be34-d128be1ca680" />
+<img width="1917" height="1061" alt="Screenshot 2026-10-23 135147" src="https://github.com/user-attachments/assets/7660b5ad-2121-4e15-a84a-ac810a75656b" />
+<img width="1917" height="1070" alt="Screenshot 2026-10-23 135203" src="https://github.com/user-attachments/assets/7759c040-c91f-45a8-9db2-9e36a9154bf3" />
+<img width="1917" height="1071" alt="Screenshot 2026-10-23 135226" src="https://github.com/user-attachments/assets/1ac7b57b-d20c-4c85-87d7-1781a578b614" />
+
+
 
 
 ## 📜 License
