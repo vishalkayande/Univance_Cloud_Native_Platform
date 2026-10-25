@@ -118,17 +118,21 @@ kind load docker-image univance-frontend:latest --name univance-cluster
 
 ### Step 5: Deploy UniVance to the Cluster
 ```bash
-# 1. Apply ConfigMap and Secrets
+# 1. Create a local Secret manifest from the template and replace its placeholder values.
+#    Do not commit k8s/secret.yaml; it is excluded by .gitignore.
+cp k8s/secret.example.yaml k8s/secret.yaml
+
+# 2. Apply ConfigMap and Secrets
 kubectl apply -f k8s/configmap.yaml
 kubectl apply -f k8s/secret.yaml
 
-# 2. Deploy MongoDB (or use MongoDB Atlas in k8s/secret.yaml)
+# 3. Deploy MongoDB (or use MongoDB Atlas in your local k8s/secret.yaml)
 kubectl apply -f k8s/mongodb-deployment.yaml
 
-# 3. Deploy Backend
+# 4. Deploy Backend
 kubectl apply -f k8s/backend-deployment.yaml
 
-# 4. Deploy Frontend
+# 5. Deploy Frontend
 kubectl apply -f k8s/frontend-deployment.yaml
 ```
 
