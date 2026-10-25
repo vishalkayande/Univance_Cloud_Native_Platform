@@ -22,7 +22,7 @@ spec:
           # Replace with your Docker Hub or AWS ECR repository image
           # Example: your-dockerhub-username/univance-frontend:latest
           # Or: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/univance-frontend:latest
-          image: univance-frontend:latest
+          image: vishalskayande121/univance:univance-frontend
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
